@@ -1,0 +1,162 @@
+APP DB LOAD (stage 2) run : 2026-09-09_131116
+source (FIRST CLASS DATA) : /home/user/Data-Migration/data lab for migration old to new/FIRST CLASS DATA/ahmed_cement_migrated.db
+app DB (AMSCOPY9 target)  : /home/user/Data-Migration/AMSCOPY9/instance/ahmed_cement_v44_fresh.db
+
+source integrity_check : ok | source total rows: 29266
+
+[BACKUP ] app DB copied -> /home/user/Data-Migration/data lab for migration old to new/backups/appdb_backup_2026-09-09_131116/ahmed_cement_v44_fresh.db
+[CLEAN  ] wiped 29270 rows across 69 tables (whole app DB is empty; schema untouched)
+[CLEAN  ] integrity after wipe: ok
+
+[LOAD   ] account                          rows=    12 uniq_recreated=0
+[LOAD   ] account_category                 rows=     6 uniq_recreated=0
+[LOAD   ] account_reconciliation           rows=     0 uniq_recreated=0
+[LOAD   ] account_transaction              rows=  1059 uniq_recreated=1
+[LOAD   ] accounting_audit_log             rows=   223 uniq_recreated=0
+[LOAD   ] audit_log                        rows=  1630 uniq_recreated=0
+[LOAD   ] bill_counter                     rows=     7 uniq_recreated=0
+[LOAD   ] booking                          rows=   427 uniq_recreated=1
+[LOAD   ] booking_allocation               rows=  1423 uniq_recreated=0
+[LOAD   ] booking_allocation_repair_archive rows=    15 uniq_recreated=0
+[LOAD   ] booking_item                     rows=   999 uniq_recreated=0
+[LOAD   ] cash_day_account_position        rows=     0 uniq_recreated=3
+[LOAD   ] cash_day_lock                    rows=     0 uniq_recreated=1
+[LOAD   ] cash_flow_category               rows=    12 uniq_recreated=0
+[LOAD   ] cash_flow_difference_adjustment  rows=     1 uniq_recreated=0
+[LOAD   ] cash_flow_entry                  rows=     0 uniq_recreated=1
+[LOAD   ] cash_flow_entry_audit            rows=     0 uniq_recreated=0
+[LOAD   ] cash_flow_party                  rows=     0 uniq_recreated=0
+[LOAD   ] cash_flow_reconciliation_audit   rows=     0 uniq_recreated=0
+[LOAD   ] cash_flow_subcategory            rows=    10 uniq_recreated=0
+[LOAD   ] client                           rows=   323 uniq_recreated=0
+[LOAD   ] delivery                         rows=     0 uniq_recreated=0
+[LOAD   ] delivery_item                    rows=     0 uniq_recreated=0
+[LOAD   ] delivery_person                  rows=    15 uniq_recreated=0
+[LOAD   ] delivery_person_payment          rows=     0 uniq_recreated=2
+[LOAD   ] delivery_rent                    rows=  1038 uniq_recreated=0
+[LOAD   ] direct_sale                      rows=  2719 uniq_recreated=3
+[LOAD   ] direct_sale_draft                rows=     0 uniq_recreated=0
+[LOAD   ] direct_sale_item                 rows=  5048 uniq_recreated=0
+[LOAD   ] entry                            rows=  5259 uniq_recreated=0
+[LOAD   ] fbm_cash_drawer_category         rows=     6 uniq_recreated=0
+[LOAD   ] fbm_cash_drawer_entry            rows=     2 uniq_recreated=0
+[LOAD   ] fbm_client                       rows=     0 uniq_recreated=0
+[LOAD   ] fbm_rental                       rows=     0 uniq_recreated=0
+[LOAD   ] fbm_rental_item                  rows=     1 uniq_recreated=0
+[LOAD   ] follow_up_contact                rows=     4 uniq_recreated=0
+[LOAD   ] follow_up_reminder               rows=    25 uniq_recreated=0
+[LOAD   ] future_account_audit_log         rows=     0 uniq_recreated=0
+[LOAD   ] grn                              rows=    49 uniq_recreated=2
+[LOAD   ] grn_allocation                   rows=    65 uniq_recreated=0
+[LOAD   ] grn_item                         rows=    49 uniq_recreated=0
+[LOAD   ] import_history_entry             rows=     0 uniq_recreated=2
+[LOAD   ] import_job                       rows=     0 uniq_recreated=1
+[LOAD   ] import_upload                    rows=     0 uniq_recreated=2
+[LOAD   ] invoice                          rows=  2378 uniq_recreated=0
+[LOAD   ] material                         rows=    68 uniq_recreated=0
+[LOAD   ] material_category                rows=    12 uniq_recreated=0
+[LOAD   ] material_return                  rows=    82 uniq_recreated=1
+[LOAD   ] material_return_item             rows=   111 uniq_recreated=0
+[LOAD   ] migration_mapping                rows=     0 uniq_recreated=3
+[LOAD   ] migration_row                    rows=     0 uniq_recreated=4
+[LOAD   ] migration_run                    rows=     1 uniq_recreated=5
+[LOAD   ] payment                          rows=   917 uniq_recreated=3
+[LOAD   ] pending_bill                     rows=  1702 uniq_recreated=0
+[LOAD   ] recon_basket                     rows=     0 uniq_recreated=0
+[LOAD   ] root_backup_email_history        rows=     0 uniq_recreated=3
+[LOAD   ] root_backup_settings             rows=     0 uniq_recreated=1
+[LOAD   ] root_recovery_code               rows=     0 uniq_recreated=3
+[LOAD   ] sale_delivery_persons            rows=  3020 uniq_recreated=0
+[LOAD   ] schema_version                   rows=     0 uniq_recreated=0
+[LOAD   ] settings                         rows=     0 uniq_recreated=0
+[LOAD   ] staff_email                      rows=     0 uniq_recreated=1
+[LOAD   ] supplier                         rows=     7 uniq_recreated=0
+[LOAD   ] supplier_payment                 rows=    79 uniq_recreated=3
+[LOAD   ] system_lock                      rows=     0 uniq_recreated=3
+[LOAD   ] tenant_wipe_backup_history       rows=     0 uniq_recreated=2
+[LOAD   ] user                             rows=     9 uniq_recreated=0
+[LOAD   ] user_login_session               rows=    28 uniq_recreated=1
+[LOAD   ] waive_off                        rows=   425 uniq_recreated=0
+
+=== VERIFICATION ===
+integrity_check: ok
+  account                            source=    12 loaded=    12 [OK]
+  account_category                   source=     6 loaded=     6 [OK]
+  account_reconciliation             source=     0 loaded=     0 [OK]
+  account_transaction                source=  1059 loaded=  1059 [OK]
+  accounting_audit_log               source=   223 loaded=   223 [OK]
+  audit_log                          source=  1630 loaded=  1630 [OK]
+  bill_counter                       source=     7 loaded=     7 [OK]
+  booking                            source=   427 loaded=   427 [OK]
+  booking_allocation                 source=  1423 loaded=  1423 [OK]
+  booking_allocation_repair_archive  source=    15 loaded=    15 [OK]
+  booking_item                       source=   999 loaded=   999 [OK]
+  cash_day_account_position          source=     0 loaded=     0 [OK]
+  cash_day_lock                      source=     0 loaded=     0 [OK]
+  cash_flow_category                 source=    12 loaded=    12 [OK]
+  cash_flow_difference_adjustment    source=     1 loaded=     1 [OK]
+  cash_flow_entry                    source=     0 loaded=     0 [OK]
+  cash_flow_entry_audit              source=     0 loaded=     0 [OK]
+  cash_flow_party                    source=     0 loaded=     0 [OK]
+  cash_flow_reconciliation_audit     source=     0 loaded=     0 [OK]
+  cash_flow_subcategory              source=    10 loaded=    10 [OK]
+  client                             source=   323 loaded=   323 [OK]
+  delivery                           source=     0 loaded=     0 [OK]
+  delivery_item                      source=     0 loaded=     0 [OK]
+  delivery_person                    source=    15 loaded=    15 [OK]
+  delivery_person_payment            source=     0 loaded=     0 [OK]
+  delivery_rent                      source=  1038 loaded=  1038 [OK]
+  direct_sale                        source=  2719 loaded=  2719 [OK]
+  direct_sale_draft                  source=     0 loaded=     0 [OK]
+  direct_sale_item                   source=  5048 loaded=  5048 [OK]
+  entry                              source=  5259 loaded=  5259 [OK]
+  fbm_cash_drawer_category           source=     6 loaded=     6 [OK]
+  fbm_cash_drawer_entry              source=     2 loaded=     2 [OK]
+  fbm_client                         source=     0 loaded=     0 [OK]
+  fbm_rental                         source=     0 loaded=     0 [OK]
+  fbm_rental_item                    source=     1 loaded=     1 [OK]
+  follow_up_contact                  source=     4 loaded=     4 [OK]
+  follow_up_reminder                 source=    25 loaded=    25 [OK]
+  future_account_audit_log           source=     0 loaded=     0 [OK]
+  grn                                source=    49 loaded=    49 [OK]
+  grn_allocation                     source=    65 loaded=    65 [OK]
+  grn_item                           source=    49 loaded=    49 [OK]
+  import_history_entry               source=     0 loaded=     0 [OK]
+  import_job                         source=     0 loaded=     0 [OK]
+  import_upload                      source=     0 loaded=     0 [OK]
+  invoice                            source=  2378 loaded=  2378 [OK]
+  material                           source=    68 loaded=    68 [OK]
+  material_category                  source=    12 loaded=    12 [OK]
+  material_return                    source=    82 loaded=    82 [OK]
+  material_return_item               source=   111 loaded=   111 [OK]
+  migration_mapping                  source=     0 loaded=     0 [OK]
+  migration_row                      source=     0 loaded=     0 [OK]
+  migration_run                      source=     1 loaded=     1 [OK]
+  payment                            source=   917 loaded=   917 [OK]
+  pending_bill                       source=  1702 loaded=  1702 [OK]
+  recon_basket                       source=     0 loaded=     0 [OK]
+  root_backup_email_history          source=     0 loaded=     0 [OK]
+  root_backup_settings               source=     0 loaded=     0 [OK]
+  root_recovery_code                 source=     0 loaded=     0 [OK]
+  sale_delivery_persons              source=  3020 loaded=  3020 [OK]
+  schema_version                     source=     0 loaded=     0 [OK]
+  settings                           source=     0 loaded=     0 [OK]
+  staff_email                        source=     0 loaded=     0 [OK]
+  supplier                           source=     7 loaded=     7 [OK]
+  supplier_payment                   source=    79 loaded=    79 [OK]
+  system_lock                        source=     0 loaded=     0 [OK]
+  tenant_wipe_backup_history         source=     0 loaded=     0 [OK]
+  user                               source=     9 loaded=     9 [OK]
+  user_login_session                 source=    28 loaded=    28 [OK]
+  waive_off                          source=   425 loaded=   425 [OK]
+
+=== FK ORPHAN CHECK (declared) ===
+  none (all declared FK references resolve)
+
+=== LOGICAL USER-FK CHECK (no DB constraint declared) ===
+  none (all user_id references resolve to a real user)
+
+RESULT: PASS - app DB is fully clean and equals FIRST CLASS DATA row-for-row.
+
+[DEPLOY ] /home/user/Data-Migration/data lab for migration old to new/FINAL DEPLOY/ahmed_cement_v44_fresh.db
+[DEPLOY ] sha256: 2af2b3784c10d7511a921d27113a1068bcd781af36db76150cd8fc20de4f51f3

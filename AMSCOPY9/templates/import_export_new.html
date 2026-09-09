@@ -15,6 +15,20 @@
         </span>
     </header>
 
+    <div class="alert alert-info d-flex gap-3 align-items-center mb-3" role="status">
+        <i class="bi bi-database fs-4"></i>
+        <div class="flex-grow-1">
+            <div class="fw-bold">New: full backup / restore as a SQLite .db file (recommended)</div>
+            <div class="small mt-1">
+                Exact schema, original ids and native types — no xlsx sheets, no Excel row limits.
+                The xlsx cards below stay for module-level work and human-readable exports.
+            </div>
+        </div>
+        <a class="btn btn-info text-dark fw-bold text-nowrap" href="{{ url_for('import_export.db_transfer_page') }}">
+            <i class="bi bi-database me-1"></i>Open DB File Center
+        </a>
+    </div>
+
     <div class="alert alert-info d-flex gap-3 align-items-start mb-4" role="status">
         <i class="bi bi-shield-check fs-4"></i>
         <div>
