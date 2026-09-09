@@ -26,6 +26,19 @@ def import_export_page():
         full_raw_import_report = {'name': report_name, 'created_at': None}
     else:
         full_raw_import_report = None
+
+    full_db_sync_enabled = str(
+        os.environ.get('FULL_DB_SYNC_ENABLED', current_app.config.get('FULL_DB_SYNC_ENABLED', '1'))
+    ).strip().lower() in ['1', 'true', 'on', 'yes']
+    full_db_report_name = (request.args.get('full_db_import_report')
+                           or session.get('full_db_import_report'))
+    full_db_report_meta = session.get('full_db_import_report_meta')
+    if full_db_report_name and full_db_report_meta and full_db_report_meta.get('name') == full_db_report_name:
+        full_db_import_report = full_db_report_meta
+    elif full_db_report_name:
+        full_db_import_report = {'name': full_db_report_name, 'created_at': None}
+    else:
+        full_db_import_report = None
     tenants = []
     export_modules = [
         {'key': key, 'label': cfg['label'], 'tables': cfg['tables']}
@@ -37,5 +50,7 @@ def import_export_page():
         full_raw_import_report=full_raw_import_report,
         tenants=tenants,
         export_modules=export_modules,
+        full_db_sync_enabled=full_db_sync_enabled,
+        full_db_import_report=full_db_import_report,
     )
 

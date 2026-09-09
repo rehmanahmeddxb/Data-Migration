@@ -31,3 +31,6 @@ config.txt
 *.pyc
 # QA scratch harness (local test runs, not part of the app)
 .qa/
+# Portable full-database snapshot containers (runtime artifacts, keep out of git)
+*.amsdb
+instance/*.amsdb
