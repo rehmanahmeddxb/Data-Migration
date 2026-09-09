@@ -26,6 +26,117 @@
         </div>
     </div>
 
+    <!-- ===== Full database snapshot (.db) — recommended ===== -->
+    <div class="row g-4 align-items-stretch mb-2">
+        <div class="col-12">
+            <h2 class="h5 fw-bold text-success mb-1"><i class="bi bi-database me-1"></i>Full Database Snapshot (.db file) — recommended</h2>
+            <p class="text-white-50 small mb-0">
+                Full data moves now use a <strong>SQLite database file</strong> instead of Excel — the same reliable format the
+                app itself runs on. A snapshot is an exact copy of the whole database (schema, every table, all rows, users included),
+                so nothing is lost to sheet limits, date/type coercion or duplicate names. An import first <strong>cleans all data
+                out of this app</strong> (after an automatic backup), then copies the file's data in with original IDs — no broken
+                links, no orphans.
+            </p>
+        </div>
+
+        <div class="col-lg-6">
+            <section class="ui-card h-100 d-flex flex-column">
+                <div class="ui-card-header">
+                    <h3><i class="bi bi-file-earmark-arrow-down text-success"></i>Export Database Snapshot</h3>
+                    <span class="badge text-bg-success">.amsdb / SQLite</span>
+                </div>
+                <div class="ui-card-body d-flex flex-column flex-grow-1">
+                    <p class="text-white-50 mb-3">
+                        Download the entire live database as one portable <code>.amsdb</code> file
+                        (SQLite, verified, self-describing). Your live data is not changed.
+                    </p>
+                    <ul class="small text-white-50 ps-3 mb-4">
+                        <li>Can be re-imported here, or into another AMS machine running the same version.</li>
+                        <li>This is the file you should keep as your "before / after" safety copy.</li>
+                    </ul>
+                    <a href="{{ url_for('import_export.full_db_export') }}" class="btn btn-success w-100 mt-auto">
+                        <i class="bi bi-file-earmark-arrow-down me-1"></i><span>Export Full .db Snapshot</span>
+                    </a>
+                </div>
+            </section>
+        </div>
+
+        <div class="col-lg-6">
+            <section class="ui-card h-100 d-flex flex-column">
+                <div class="ui-card-header">
+                    <h3><i class="bi bi-file-earmark-arrow-up text-warning"></i>Import Database Snapshot</h3>
+                    <span class="badge text-bg-warning">Clean &amp; Load</span>
+                </div>
+                <div class="ui-card-body d-flex flex-column flex-grow-1">
+                    {% if full_db_sync_enabled %}
+                    <p class="text-white-50 mb-3">
+                        Upload a <code>.amsdb</code> / <code>.db</code> snapshot exported by AMS. The current database is backed
+                        up automatically, then every existing row is removed and the file's data is copied in fully (users included).
+                    </p>
+                    <form method="POST"
+                          action="{{ url_for('import_export.full_db_import') }}"
+                          enctype="multipart/form-data"
+                          class="ui-form d-flex flex-column flex-grow-1">
+                        <div class="ui-field mb-3">
+                            <label for="fullDbFile" class="ui-label">Snapshot file (.amsdb / .db)</label>
+                            <input id="fullDbFile" type="file" name="file" class="form-control"
+                                   accept=".amsdb,.db,.sqlite,.sqlite3" required>
+                        </div>
+                        <div class="ui-field mb-3">
+                            <label for="fullDbMode" class="ui-label">Import mode</label>
+                            <select id="fullDbMode" name="mode" class="form-select">
+                                <option value="clean_replace" selected>Full sync — clean all data first, then copy the file (recommended)</option>
+                                <option value="append">Append — keep existing rows, only add new IDs from the file</option>
+                            </select>
+                        </div>
+                        <div class="alert alert-warning small py-2 mb-3">
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            <strong>Full sync removes every row</strong> — clients, sales, users — from this app before loading the
+                            uploaded file. The old database is saved as a backup first (in <code>instance/migration/</code>) so you can
+                            restore it at any time.
+                        </div>
+                        <button type="submit" class="btn btn-warning w-100 mt-auto"
+                                onclick="return confirmFullDbImport(this)">
+                            <i class="bi bi-arrow-repeat me-1"></i><span>Import Full .db Snapshot</span>
+                        </button>
+                    </form>
+
+                    {% if full_db_import_report %}
+                    <div class="import-report-summary mt-3 p-3 rounded border">
+                        <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                            <div class="fw-bold"><i class="bi bi-clipboard-data me-1"></i>Latest full-db import report</div>
+                            {% if full_db_import_report.status %}
+                            <span class="badge {{ 'text-bg-success' if full_db_import_report.status == 'PASS' else 'text-bg-danger' }}">
+                                {{ full_db_import_report.status }}
+                            </span>
+                            {% endif %}
+                        </div>
+                        {% if full_db_import_report.created_at %}
+                        <div class="small text-white-50 mt-1">{{ full_db_import_report.created_at }}</div>
+                        {% endif %}
+                        <div class="row g-2 mt-2 small">
+                            <div class="col-6 col-sm-3"><span class="text-white-50 d-block">Mode</span><strong>{{ full_db_import_report.mode or '-' }}</strong></div>
+                            <div class="col-6 col-sm-3"><span class="text-white-50 d-block">Cleaned</span><strong>{{ full_db_import_report.rows_deleted or 0 }}</strong></div>
+                            <div class="col-6 col-sm-3"><span class="text-white-50 d-block">Inserted</span><strong>{{ full_db_import_report.rows_inserted or 0 }}</strong></div>
+                            <div class="col-6 col-sm-3"><span class="text-white-50 d-block">FK violations</span><strong class="{{ 'text-danger' if full_db_import_report.fk_violations else '' }}">{{ full_db_import_report.fk_violations or 0 }}</strong></div>
+                        </div>
+                        <a href="{{ url_for('import_export.full_db_import_report', report_name=full_db_import_report.name) }}"
+                           class="btn btn-outline-info btn-sm w-100 mt-3">
+                            <i class="bi bi-download"></i><span>Download JSON Report</span>
+                        </a>
+                    </div>
+                    {% endif %}
+                    {% else %}
+                    <div class="alert alert-warning mb-0">
+                        <i class="bi bi-lock me-1"></i>
+                        Full database snapshot import is disabled by the server safety setting. Set <code>FULL_DB_SYNC_ENABLED=1</code> to enable it.
+                    </div>
+                    {% endif %}
+                </div>
+            </section>
+        </div>
+    </div>
+
     <!-- ===== Granular (per-module) backup / restore ===== -->
     <div class="row g-4 align-items-stretch mb-2">
         <div class="col-12">
@@ -140,22 +251,22 @@
         <div class="col-lg-6">
             <section class="ui-card h-100 d-flex flex-column">
                 <div class="ui-card-header">
-                    <h3><i class="bi bi-file-earmark-arrow-down text-success"></i>Export Full XLSX</h3>
-                    <span class="badge text-bg-success">Full Backup</span>
+                    <h3><i class="bi bi-file-earmark-excel text-secondary"></i>Export Full XLSX <span class="text-danger small fw-bold">(Legacy)</span></h3>
+                    <span class="badge text-bg-secondary">Deprecated</span>
                 </div>
                 <div class="ui-card-body d-flex flex-column flex-grow-1">
+                    <div class="alert alert-danger small py-2">
+                        <i class="bi bi-exclamation-octagon me-1"></i>
+                        Not recommended for full data moves. Use the <strong>Full .db Snapshot</strong> above — Excel corrupts or
+                        drops data through sheet limits and type/date coercion. Kept only for old workbooks.
+                    </div>
                     <p class="text-white-50 mb-3">
                         Download one workbook containing every available table, all column names, and transfer metadata.
                     </p>
-                    <ul class="small text-white-50 ps-3 mb-4">
-                        <li>Use this file for the most reliable full restore.</li>
-                        <li>Date and time values are exported in a portable format.</li>
-                        <li>The workbook is downloaded directly; your live data is not changed.</li>
-                    </ul>
                     <form method="POST" action="{{ url_for('import_export.transfer_export') }}" class="mt-auto">
                         <input type="hidden" name="sections" value="literal_all">
-                        <button type="submit" class="btn btn-success w-100">
-                            <i class="bi bi-file-earmark-excel"></i><span>Export Full XLSX</span>
+                        <button type="submit" class="btn btn-secondary w-100">
+                            <i class="bi bi-file-earmark-excel"></i><span>Export Full XLSX (Legacy)</span>
                         </button>
                     </form>
                 </div>
@@ -165,11 +276,15 @@
         <div class="col-lg-6">
             <section class="ui-card h-100 d-flex flex-column">
                 <div class="ui-card-header">
-                    <h3><i class="bi bi-file-earmark-arrow-up text-warning"></i>Import Full XLSX</h3>
-                    <span class="badge text-bg-warning">Full Restore</span>
+                    <h3><i class="bi bi-file-earmark-excel text-warning"></i>Import Full XLSX <span class="text-danger small fw-bold">(Legacy)</span></h3>
+                    <span class="badge text-bg-secondary">Deprecated</span>
                 </div>
                 <div class="ui-card-body d-flex flex-column flex-grow-1">
                     {% if full_raw_import_enabled %}
+                    <div class="alert alert-danger small py-2">
+                        <i class="bi bi-exclamation-octagon me-1"></i>
+                        Legacy Excel restore. Prefer the <strong>Full .db Snapshot</strong> import above for new data moves.
+                    </div>
                     <p class="text-white-50 mb-3">
                         Upload an XLSX exported by AMS. You will receive a per-table result after processing.
                     </p>
@@ -246,6 +361,19 @@
 </style>
 
 <script>
+function confirmFullDbImport(btn) {
+    const form = btn && btn.form ? btn.form : null;
+    if (!form) return true;
+    const mode = form.querySelector('select[name="mode"]');
+    if (mode && mode.value === 'clean_replace') {
+        return confirm(
+            'FULL SYNC — every existing row in this app database will be DELETED first ' +
+            '(clients, sales, users, everything), then the uploaded snapshot will be loaded fully. ' +
+            'An automatic backup of the current database is saved before this runs. Continue?'
+        );
+    }
+    return true;
+}
 function confirmOverwrite(btn) {
     const form = btn && btn.form ? btn.form : null;
     if (!form) return true;
