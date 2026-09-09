@@ -1,0 +1,137 @@
+Migration run : 2026-09-09 12:34:43.529883
+OLD (source)  : /home/user/Data-Migration/data lab for migration old to new/ahmed_cement.db
+NEW (schema)  : /home/user/Data-Migration/data lab for migration old to new/NewData/ahmed_cement_v44_fresh.db
+OUT (result)  : /home/user/Data-Migration/data lab for migration old to new/FIRST CLASS DATA/ahmed_cement_migrated.db
+
+[REPLACE] account                        seed=     5 -> old=    12  uniq_recreated=0
+[REPLACE] account_category               seed=     5 -> old=     6  uniq_recreated=0
+[REPLACE] account_reconciliation         seed=     0 -> old=     0  uniq_recreated=0
+[REPLACE] account_transaction            seed=   539 -> old=  1059  uniq_recreated=1
+[REPLACE] accounting_audit_log           seed=    35 -> old=   223  uniq_recreated=0  RELAXED=['sqlite_autoindex_accounting_audit_log_1']
+[REPLACE] audit_log                      seed=  1520 -> old=  1630  uniq_recreated=0  RELAXED=['sqlite_autoindex_audit_log_1']
+[REPLACE] bill_counter                   seed=     2 -> old=     7  uniq_recreated=0
+[REPLACE] booking                        seed=     0 -> old=   427  uniq_recreated=1
+[REPLACE] booking_allocation             seed=     0 -> old=  1423  uniq_recreated=0
+[REPLACE] booking_allocation_repair_archive seed=     0 -> old=    15  uniq_recreated=0
+[REPLACE] booking_item                   seed=     0 -> old=   999  uniq_recreated=0
+[REPLACE] cash_flow_category             seed=    11 -> old=    12  uniq_recreated=0
+[REPLACE] cash_flow_difference_adjustment seed=     0 -> old=     1  uniq_recreated=0  RELAXED=['sqlite_autoindex_cash_flow_difference_adjustment_1']
+[REPLACE] cash_flow_entry                seed=   537 -> old=     0  uniq_recreated=1
+[REPLACE] cash_flow_entry_audit          seed=   569 -> old=     0  uniq_recreated=0
+[REPLACE] cash_flow_party                seed=   316 -> old=     0  uniq_recreated=0
+[REPLACE] cash_flow_reconciliation_audit seed=     0 -> old=     0  uniq_recreated=0
+[REPLACE] cash_flow_subcategory          seed=     0 -> old=    10  uniq_recreated=0
+[REPLACE] client                         seed=     1 -> old=   323  uniq_recreated=0
+[REPLACE] delivery                       seed=     0 -> old=     0  uniq_recreated=0
+[REPLACE] delivery_item                  seed=     0 -> old=     0  uniq_recreated=0
+[REPLACE] delivery_person                seed=     0 -> old=    15  uniq_recreated=0  RELAXED=['sqlite_autoindex_delivery_person_1']
+[REPLACE] delivery_person_payment        seed=     0 -> old=     0  uniq_recreated=2
+[REPLACE] delivery_rent                  seed=     0 -> old=  1038  uniq_recreated=0
+[REPLACE] direct_sale                    seed=     0 -> old=  2719  uniq_recreated=3
+[REPLACE] direct_sale_draft              seed=     0 -> old=     0  uniq_recreated=0
+[REPLACE] direct_sale_item               seed=     0 -> old=  5048  uniq_recreated=0
+[REPLACE] entry                          seed=     1 -> old=  5259  uniq_recreated=0  RELAXED=['uq_entry_auto_bill_no (UNIQUE constraint failed: entry.auto_bill_no)']
+[REPLACE] fbm_cash_drawer_category       seed=     0 -> old=     6  uniq_recreated=0
+[REPLACE] fbm_cash_drawer_entry          seed=     0 -> old=     2  uniq_recreated=0
+[REPLACE] fbm_client                     seed=     0 -> old=     0  uniq_recreated=0
+[REPLACE] fbm_rental                     seed=     0 -> old=     0  uniq_recreated=0
+[REPLACE] fbm_rental_item                seed=     0 -> old=     1  uniq_recreated=0
+[REPLACE] follow_up_contact              seed=     0 -> old=     4  uniq_recreated=0
+[REPLACE] follow_up_reminder             seed=     0 -> old=    25  uniq_recreated=0
+[REPLACE] future_account_audit_log       seed=     0 -> old=     0  uniq_recreated=0
+[REPLACE] grn                            seed=     1 -> old=    49  uniq_recreated=2
+[REPLACE] grn_allocation                 seed=     0 -> old=    65  uniq_recreated=0
+[REPLACE] grn_item                       seed=     1 -> old=    49  uniq_recreated=0
+[REPLACE] invoice                        seed=     0 -> old=  2378  uniq_recreated=0
+[REPLACE] material                       seed=     1 -> old=    68  uniq_recreated=0
+[REPLACE] material_category              seed=     2 -> old=    12  uniq_recreated=0
+[REPLACE] material_return                seed=     0 -> old=    82  uniq_recreated=1
+[REPLACE] material_return_item           seed=     0 -> old=   111  uniq_recreated=0
+[REPLACE] payment                        seed=     0 -> old=   917  uniq_recreated=3
+[REPLACE] pending_bill                   seed=     0 -> old=  1702  uniq_recreated=0
+[REPLACE] recon_basket                   seed=     0 -> old=     0  uniq_recreated=0
+[REPLACE] sale_delivery_persons          seed=     0 -> old=  3020  uniq_recreated=0
+[REPLACE] supplier                       seed=     1 -> old=     7  uniq_recreated=0
+[REPLACE] supplier_payment               seed=     0 -> old=    79  uniq_recreated=3
+[REPLACE] user_login_session             seed=     2 -> old=    28  uniq_recreated=1
+[REPLACE] waive_off                      seed=     0 -> old=   425  uniq_recreated=0
+[CLEAR  ] cash_day_lock                  seed=     1 -> 0
+[CLEAR  ] cash_day_account_position      seed=     5 -> 0
+[MERGE  ] user                  kept=2 + old_users=7 (ids remapped)
+          user id map (old->new): {1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8, 7: 9}
+          user-id refs remapped: ['accounting_audit_log.user_id', 'audit_log.user_id', 'user_login_session.user_id']
+
+=== VERIFICATION ===
+integrity_check: ok
+  account                        old=    12 new_seed=     5 migrated=    12 expect=    12 [OK]
+  account_category               old=     6 new_seed=     5 migrated=     6 expect=     6 [OK]
+  account_reconciliation         old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  account_transaction            old=  1059 new_seed=   539 migrated=  1059 expect=  1059 [OK]
+  accounting_audit_log           old=   223 new_seed=    35 migrated=   223 expect=   223 [OK]
+  audit_log                      old=  1630 new_seed=  1520 migrated=  1630 expect=  1630 [OK]
+  bill_counter                   old=     7 new_seed=     2 migrated=     7 expect=     7 [OK]
+  booking                        old=   427 new_seed=     0 migrated=   427 expect=   427 [OK]
+  booking_allocation             old=  1423 new_seed=     0 migrated=  1423 expect=  1423 [OK]
+  booking_allocation_repair_archive old=    15 new_seed=     0 migrated=    15 expect=    15 [OK]
+  booking_item                   old=   999 new_seed=     0 migrated=   999 expect=   999 [OK]
+  cash_flow_category             old=    12 new_seed=    11 migrated=    12 expect=    12 [OK]
+  cash_flow_difference_adjustment old=     1 new_seed=     0 migrated=     1 expect=     1 [OK]
+  cash_flow_entry                old=     0 new_seed=   537 migrated=     0 expect=     0 [OK]
+  cash_flow_entry_audit          old=     0 new_seed=   569 migrated=     0 expect=     0 [OK]
+  cash_flow_party                old=     0 new_seed=   316 migrated=     0 expect=     0 [OK]
+  cash_flow_reconciliation_audit old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  cash_flow_subcategory          old=    10 new_seed=     0 migrated=    10 expect=    10 [OK]
+  client                         old=   323 new_seed=     1 migrated=   323 expect=   323 [OK]
+  delivery                       old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  delivery_item                  old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  delivery_person                old=    15 new_seed=     0 migrated=    15 expect=    15 [OK]
+  delivery_person_payment        old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  delivery_rent                  old=  1038 new_seed=     0 migrated=  1038 expect=  1038 [OK]
+  direct_sale                    old=  2719 new_seed=     0 migrated=  2719 expect=  2719 [OK]
+  direct_sale_draft              old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  direct_sale_item               old=  5048 new_seed=     0 migrated=  5048 expect=  5048 [OK]
+  entry                          old=  5259 new_seed=     1 migrated=  5259 expect=  5259 [OK]
+  fbm_cash_drawer_category       old=     6 new_seed=     0 migrated=     6 expect=     6 [OK]
+  fbm_cash_drawer_entry          old=     2 new_seed=     0 migrated=     2 expect=     2 [OK]
+  fbm_client                     old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  fbm_rental                     old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  fbm_rental_item                old=     1 new_seed=     0 migrated=     1 expect=     1 [OK]
+  follow_up_contact              old=     4 new_seed=     0 migrated=     4 expect=     4 [OK]
+  follow_up_reminder             old=    25 new_seed=     0 migrated=    25 expect=    25 [OK]
+  future_account_audit_log       old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  grn                            old=    49 new_seed=     1 migrated=    49 expect=    49 [OK]
+  grn_allocation                 old=    65 new_seed=     0 migrated=    65 expect=    65 [OK]
+  grn_item                       old=    49 new_seed=     1 migrated=    49 expect=    49 [OK]
+  import_history_entry           old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  import_job                     old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  import_upload                  old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  invoice                        old=  2378 new_seed=     0 migrated=  2378 expect=  2378 [OK]
+  material                       old=    68 new_seed=     1 migrated=    68 expect=    68 [OK]
+  material_category              old=    12 new_seed=     2 migrated=    12 expect=    12 [OK]
+  material_return                old=    82 new_seed=     0 migrated=    82 expect=    82 [OK]
+  material_return_item           old=   111 new_seed=     0 migrated=   111 expect=   111 [OK]
+  payment                        old=   917 new_seed=     0 migrated=   917 expect=   917 [OK]
+  pending_bill                   old=  1702 new_seed=     0 migrated=  1702 expect=  1702 [OK]
+  recon_basket                   old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  root_backup_email_history      old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  root_backup_settings           old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  root_recovery_code             old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  sale_delivery_persons          old=  3020 new_seed=     0 migrated=  3020 expect=  3020 [OK]
+  schema_version                 old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  settings                       old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  staff_email                    old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  supplier                       old=     7 new_seed=     1 migrated=     7 expect=     7 [OK]
+  supplier_payment               old=    79 new_seed=     0 migrated=    79 expect=    79 [OK]
+  system_lock                    old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  tenant_wipe_backup_history     old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
+  user                           old=     7 new_seed=     2 migrated=     9 expect=     9 [OK]
+  user_login_session             old=    28 new_seed=     2 migrated=    28 expect=    28 [OK]
+  waive_off                      old=   425 new_seed=     0 migrated=   425 expect=   425 [OK]
+
+=== FOREIGN KEY ORPHAN CHECK ===
+  none (all FK references resolve)
+
+=== LOGICAL USER-FK CHECK (DB defines no FK constraints) ===
+  none (all user_id references resolve to a real user)
+
+RESULT: PASS - no data loss, no broken FKs.
