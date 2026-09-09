@@ -1,0 +1,160 @@
+/* =========================================================================
+   AMS Pan & Fit — click-drag / mouse-wheel panning + fit-to-width for wide
+   tables (loaded globally from layout.html).
+
+   Behaviour shipped by static/pan_view.js:
+     .ams-pan-wrap   — base class added to every pannable wrapper
+     .ams-pan-live   — wrapper currently overflows horizontally (h-scrollbar
+                       hidden, drag + wheel panning active)
+     .ams-pan-v      — wrapper also scrolls vertically: scrollbar kept and
+                       the wheel is NOT hijacked (page scroll stays normal)
+     .ams-panning    — a drag-pan is in progress
+     .ams-more-left / .ams-more-right — soft edge fades signalling hidden
+                       content on that side
+     .ams-fitted     — inner table zoomed to fit → no side scroll at all
+   ========================================================================= */
+
+.ams-pan-wrap { position: relative; }
+
+/* Hide the horizontal scrollbar only on purely-horizontal scrollers.
+   Panning (drag / wheel) plus the Fit button replaces it. */
+.ams-pan-live {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.ams-pan-live::-webkit-scrollbar {
+    height: 0;
+    width: 0;
+    display: none;
+}
+
+/* Grab cursors: the empty (non-link) surface invites dragging. */
+.ams-pan-live { cursor: grab; }
+.ams-pan-live a,
+.ams-pan-live button,
+.ams-pan-live .btn,
+.ams-pan-live input,
+.ams-pan-live select,
+.ams-pan-live label { cursor: pointer; }
+.ams-pan-live input,
+.ams-pan-live select,
+.ams-pan-live textarea { cursor: text; }
+.ams-panning,
+.ams-panning * { cursor: grabbing !important; }
+
+/* Kill native text selection only while panning so a drag doesn't smear
+   a selection across the table. */
+.ams-panning,
+.ams-panning * {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Soft fades on the edges that still hide content. */
+.ams-pan-wrap::before,
+.ams-pan-wrap::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 26px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+    z-index: 4;
+}
+.ams-pan-wrap::before {
+    left: 0;
+    background: linear-gradient(to right,
+        var(--ams-pan-fade, color-mix(in srgb, var(--ui-surface, #ffffff) 88%, transparent)),
+        transparent);
+}
+.ams-pan-wrap::after {
+    right: 0;
+    background: linear-gradient(to left,
+        var(--ams-pan-fade, color-mix(in srgb, var(--ui-surface, #ffffff) 88%, transparent)),
+        transparent);
+}
+.ams-pan-wrap.ams-more-left::before { opacity: 1; }
+.ams-pan-wrap.ams-more-right::after { opacity: 1; }
+.ams-fitted::before,
+.ams-fitted::after { opacity: 0 !important; }
+
+/* One-time hint chip (auto-hides after the first pan or a few seconds). */
+.ams-pan-hint {
+    position: absolute;
+    right: 12px;
+    bottom: 10px;
+    z-index: 6;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    color: var(--ui-text, var(--text-primary, #e2e8f0));
+    background: color-mix(in srgb, var(--ui-surface-2, #1e293b) 92%, transparent);
+    border: 1px solid var(--ui-border-strong, var(--border-strong, #475569));
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    pointer-events: none;
+    animation: ams-pan-hint-in 0.25s ease;
+}
+.ams-pan-hint .bi { color: var(--ui-accent, var(--accent, #fbbf24)); }
+.ams-pan-hint.ams-hiding { transition: opacity 0.5s ease; opacity: 0; }
+.ams-pan-wrap.ams-fitted .ams-pan-hint { display: none; }
+@keyframes ams-pan-hint-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Fit / actual-size toggle, top-right of the wrapper. */
+.ams-fit-btn {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    z-index: 7;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 7px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.4;
+    color: var(--ui-text, var(--text-primary, #e2e8f0));
+    background: color-mix(in srgb, var(--ui-surface-2, #1e293b) 90%, transparent);
+    border: 1px solid var(--ui-border-strong, var(--border-strong, #475569));
+    opacity: 0.35;
+    transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.ams-fit-btn:hover,
+.ams-fit-btn:focus-visible {
+    opacity: 1;
+    outline: none;
+    border-color: var(--ui-accent, var(--accent, #fbbf24));
+    background: var(--ui-surface-2, #273449);
+}
+.ams-pan-wrap:hover .ams-fit-btn,
+.ams-fit-btn:focus-visible { opacity: 1; }
+.ams-fit-btn .bi { color: var(--ui-accent, var(--accent, #fbbf24)); }
+
+/* Fitted tables: zoom is applied inline by JS; just neutralise the fades. */
+.ams-fitted { cursor: default; }
+
+/* Printing: no pan affordances, restore natural table size. */
+@media print {
+    .ams-pan-hint,
+    .ams-fit-btn { display: none !important; }
+    .ams-pan-wrap::before,
+    .ams-pan-wrap::after { display: none; }
+    .ams-pan-wrap > table { zoom: 1 !important; }
+}
+
+/* Respect users who ask the OS for less motion → no chip animation. */
+@media (prefers-reduced-motion: reduce) {
+    .ams-pan-hint { animation: none; }
+    .ams-pan-wrap::before,
+    .ams-pan-wrap::after { transition: none; }
+}

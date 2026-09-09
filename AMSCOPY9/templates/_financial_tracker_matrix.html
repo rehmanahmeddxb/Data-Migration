@@ -1,0 +1,249 @@
+{# Shared "Financial Tracking Filter Matrix" (reference layout #2).
+   Context: dict `ft` built by _ft_build_context() with keys:
+     preset, from_d, to_d, f_direction, f_category, f_account, f_client,
+     f_supplier, f_partner, f_worker, f_vehicle, f_method, f_q,
+     rows, total_in, total_out, net, record_count,
+     cat_options, account_options, client_opts, supplier_opts, partner_opts,
+     worker_opts, vehicle_opts, breakdown_cat, breakdown_account,
+     prefix (query-param prefix, '' standalone / 'ft_' embedded),
+     embed (bool — true when rendered inside the Cash Flow "Transactions" tab). #}
+{% set P = ft.prefix or '' %}
+{% set ft_form_action = (url_for('cash_flow') ~ '#tab-transactions') if ft.embed else url_for('financial_tracker') %}
+{% set ft_reset_url = url_for('cash_flow', _anchor='tab-transactions') if ft.embed else url_for('financial_tracker') %}
+{% set ft_export_url = url_for('financial_tracker', preset=ft.preset, direction=ft.f_direction, category=ft.f_category, account=ft.f_account, client=ft.f_client, supplier=ft.f_supplier, partner=ft.f_partner, worker=ft.f_worker, vehicle=ft.f_vehicle, method=ft.f_method, q=ft.f_q, export_csv=1) %}
+<style>
+  .ft-wrap { background:#eef2f7; padding:20px 16px; {% if not ft.embed %}min-height:100vh;{% else %}border-radius:14px;{% endif %} }
+  .ft-card { background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; }
+  .ft-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .ft-label { font-size:11px; letter-spacing:.5px; text-transform:uppercase; color:#334155; font-weight:700; margin-bottom:4px; }
+  .ft-kpi { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px 18px; }
+  .ft-kpi .lbl { font-size:11px; letter-spacing:.6px; text-transform:uppercase; color:#64748b; font-weight:600; }
+  .ft-kpi .val { font-size:20px; font-weight:700; margin-top:4px; }
+  .ft-table th { font-size:11px; text-transform:uppercase; letter-spacing:.4px; color:#334155; background:#eef2f7; padding:8px 10px; }
+  .ft-table td { font-size:13px; padding:8px 10px; border-bottom:1px solid #e6ecf4; }
+  .in-pos{color:#16a34a;} .out-neg{color:#dc2626;}
+</style>
+
+<div class="ft-wrap">
+
+  <!-- HEADER -->
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div class="d-flex align-items-center">
+      <i class="bi bi-funnel-fill text-primary fs-5 me-2"></i>
+      <span class="fw-bold" style="font-size:17px; letter-spacing:.4px;">FINANCIAL TRACKING FILTER MATRIX</span>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{{ ft_reset_url }}" class="btn btn-light border fw-bold"><i class="bi bi-arrow-counterclockwise me-1"></i> Reset Filters</a>
+      <button form="ftForm" type="submit" class="btn btn-primary fw-bold" style="background:#4f46e5;border-color:#4f46e5;"><i class="bi bi-funnel me-1"></i> Apply Filters</button>
+    </div>
+  </div>
+
+  <!-- FILTER MATRIX -->
+  <form method="GET" action="{{ ft_form_action }}" id="ftForm" class="ft-card p-3 mb-3">
+    <div class="row g-3">
+      <div class="col-md-3"><div class="ft-label">Date Range Preset</div>
+        <select name="{{ P }}preset" class="form-select">
+          <option value="today" {% if ft.preset=='today' %}selected{% endif %}>Today</option>
+          <option value="yesterday" {% if ft.preset=='yesterday' %}selected{% endif %}>Yesterday</option>
+          <option value="this_week" {% if ft.preset=='this_week' %}selected{% endif %}>This Week</option>
+          <option value="this_month" {% if ft.preset=='this_month' %}selected{% endif %}>This Month</option>
+          <option value="last_30" {% if ft.preset=='last_30' %}selected{% endif %}>Last 30 Days</option>
+          <option value="all" {% if ft.preset=='all' %}selected{% endif %}>All</option>
+        </select>
+      </div>
+      <div class="col-md-3"><div class="ft-label">Direction / Type</div>
+        <select name="{{ P }}direction" class="form-select">
+          <option value="all" {% if ft.f_direction=='all' %}selected{% endif %}>All Directions</option>
+          <option value="in" {% if ft.f_direction=='in' %}selected{% endif %}>In (Received)</option>
+          <option value="out" {% if ft.f_direction=='out' %}selected{% endif %}>Out (Spent)</option>
+          <option value="transfer" {% if ft.f_direction=='transfer' %}selected{% endif %}>Transfer</option>
+        </select>
+      </div>
+      <div class="col-md-3"><div class="ft-label">Category</div>
+        <select name="{{ P }}category" class="form-select">
+          <option value="">All Categories</option>
+          {% for c in ft.cat_options %}<option value="{{ c }}" {% if ft.f_category==c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3"><div class="ft-label">Account</div>
+        <select name="{{ P }}account" class="form-select">
+          <option value="">All Accounts</option>
+          {% for a in ft.account_options %}<option value="{{ a.id }}" {% if ft.f_account==a.id|string %}selected{% endif %}>{{ a.label }}</option>{% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-3"><div class="ft-label">Client</div>
+        <select name="{{ P }}client" class="form-select"><option value="all">All Clients</option>
+          {% for o in ft.client_opts %}<option value="{{ o }}" {% if ft.f_client==o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3"><div class="ft-label">Supplier</div>
+        <select name="{{ P }}supplier" class="form-select"><option value="all">All Suppliers</option>
+          {% for o in ft.supplier_opts %}<option value="{{ o }}" {% if ft.f_supplier==o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3"><div class="ft-label">Partner</div>
+        <select name="{{ P }}partner" class="form-select"><option value="all">All Partners</option>
+          {% for o in ft.partner_opts %}<option value="{{ o }}" {% if ft.f_partner==o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3"><div class="ft-label">Worker / Labour</div>
+        <select name="{{ P }}worker" class="form-select"><option value="all">All Workers</option>
+          {% for o in ft.worker_opts %}<option value="{{ o }}" {% if ft.f_worker==o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-3"><div class="ft-label">Vehicle</div>
+        <select name="{{ P }}vehicle" class="form-select"><option value="">All Vehicles</option>
+          {% for o in ft.vehicle_opts %}<option value="{{ o }}" {% if ft.f_vehicle==o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3"><div class="ft-label">Payment Method</div>
+        <select name="{{ P }}method" class="form-select">
+          <option value="all">All Payment Methods</option>
+          <option value="cash" {% if ft.f_method=='cash' %}selected{% endif %}>Cash</option>
+          <option value="bank" {% if ft.f_method=='bank' %}selected{% endif %}>Bank</option>
+          <option value="check" {% if ft.f_method=='check' %}selected{% endif %}>Check</option>
+        </select>
+      </div>
+      <div class="col-md-3"><div class="ft-label">Text / Ref Search</div>
+        <div class="input-group"><span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" name="{{ P }}q" class="form-control" placeholder="Search reference, description..." value="{{ ft.f_q }}">
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <!-- KPI TILES -->
+  <div class="row g-3 mb-3">
+    <div class="col-md-3"><div class="ft-kpi"><div class="lbl">Filtered Total In</div>
+      <div class="val ft-mono in-pos">+ Rs. {{ "{:,.0f}".format(ft.total_in) }}</div></div></div>
+    <div class="col-md-3"><div class="ft-kpi"><div class="lbl">Filtered Total Out</div>
+      <div class="val ft-mono out-neg">- Rs. {{ "{:,.0f}".format(ft.total_out) }}</div></div></div>
+    <div class="col-md-3"><div class="ft-kpi"><div class="lbl">Net Movement</div>
+      <div class="val ft-mono {% if ft.net >= 0 %}in-pos{% else %}out-neg{% endif %}">{% if ft.net >= 0 %}+{% else %}-{% endif %} Rs. {{ "{:,.0f}".format(ft.net|abs) }}</div></div></div>
+    <div class="col-md-3"><div class="ft-kpi"><div class="lbl">Matching Records</div>
+      <div class="val ft-mono text-dark">{{ ft.record_count }} Transactions</div></div></div>
+  </div>
+
+  <!-- EXPORT BAR -->
+  <div class="ft-card p-3 mb-3 d-flex flex-wrap align-items-center justify-content-between">
+    <div class="d-flex align-items-center">
+      <i class="bi bi-file-earmark-text text-primary fs-4 me-2"></i>
+      <div>
+        <div class="fw-bold">Export Filtered Financial Report</div>
+        <div class="small text-muted">Generate PDF report, Excel, or CSV based on exact active filters</div>
+      </div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a class="btn fw-bold text-white" style="background:#4f46e5;" href="{{ ft_export_url }}"><i class="bi bi-printer me-1"></i> Download Report</a>
+      <a class="btn btn-success fw-bold" href="{{ ft_export_url }}"><i class="bi bi-file-earmark-spreadsheet me-1"></i> Export Excel (.xlsx)</a>
+      <a class="btn btn-light border fw-bold" href="{{ ft_export_url }}">Export CSV</a>
+    </div>
+  </div>
+
+  <!-- BREAKDOWN -->
+  <div class="ft-card p-3">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <span class="fw-bold" style="letter-spacing:.4px;">FILTERED CATEGORY &amp; ACCOUNT BREAKDOWN</span>
+      <i class="bi bi-chevron-up text-muted"></i>
+    </div>
+    <div class="row g-4">
+      <div class="col-lg-6">
+        <div class="ft-label">Category Summary</div>
+        <table class="table ft-table mb-0">
+          <thead><tr><th>Category</th><th>Type</th><th class="text-end">Total Amount</th></tr></thead>
+          <tbody>
+            {% for name, v in ft.breakdown_cat.items()|sort %}
+            <tr><td>{{ name }}</td><td>{% if v['in']>0 %}IN{% elif v['out']>0 %}OUT{% else %}TRANSFER{% endif %}</td>
+              <td class="text-end ft-mono fw-bold">Rs. {{ "{:,.0f}".format(v['in'] + v['out'] + v['transfer']) }}</td></tr>
+            {% else %}<tr><td colspan="3" class="text-center text-muted">No data</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="col-lg-6">
+        <div class="ft-label">Account Summary</div>
+        <table class="table ft-table mb-0">
+          <thead><tr><th>Account</th><th class="text-end">IN</th><th class="text-end">OUT</th><th class="text-end">Net</th></tr></thead>
+          <tbody>
+            {% for name, v in ft.breakdown_account.items()|sort %}
+            <tr><td>{{ name }}</td>
+              <td class="text-end ft-mono in-pos">Rs. {{ "{:,.0f}".format(v['in'] + v['transfer']) }}</td>
+              <td class="text-end ft-mono out-neg">Rs. {{ "{:,.0f}".format(v['out']) }}</td>
+              <td class="text-end ft-mono fw-bold">Rs. {{ "{:,.0f}".format(v['in'] + v['transfer'] - v['out']) }}</td></tr>
+            {% else %}<tr><td colspan="4" class="text-center text-muted">No data</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ALL TRANSACTIONS -->
+  <div class="ft-card p-3 mt-3">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <span class="fw-bold" style="letter-spacing:.4px;">ALL TRANSACTIONS ({{ ft.record_count }})</span>
+      {% if not ft.embed %}
+      <a class="btn btn-sm btn-light border" href="{{ url_for('cash_flow', from_date=ft.from_d.strftime('%Y-%m-%d'), to_date=ft.to_d.strftime('%Y-%m-%d')) }}"><i class="bi bi-water me-1"></i> Open in Cash Flow</a>
+      {% endif %}
+    </div>
+    <div class="table-responsive">
+      <table class="table ft-table align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Date &amp; Time</th><th>Type</th><th>Account</th><th>Category</th><th>Party</th>
+            <th class="text-end">In</th><th class="text-end">Out</th><th class="text-end">Transfer</th>
+            <th>Reference</th><th>Description</th>
+            {% if ft.embed %}<th class="text-end">Actions</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in ft.rows %}
+          <tr {% if r.status=='voided' %}class="text-muted opacity-75"{% endif %}>
+            <td class="ft-mono small">{{ r.sort_dt.strftime('%Y-%m-%d %H:%M') if r.sort_dt else r.date }}</td>
+            <td><span class="badge {% if r.type=='in' %}bg-success{% elif r.type=='out' %}bg-danger{% else %}bg-primary{% endif %}">{{ r.tx_type_label }}</span></td>
+            <td>{{ r.account_display }}</td>
+            <td>{{ r.category or '—' }}</td>
+            <td>{{ r.party_name or '—' }}</td>
+            <td class="text-end ft-mono in-pos">{% if r.cash_in %}+ Rs. {{ "{:,.0f}".format(r.cash_in) }}{% else %}—{% endif %}</td>
+            <td class="text-end ft-mono out-neg">{% if r.cash_out %}- Rs. {{ "{:,.0f}".format(r.cash_out) }}{% else %}—{% endif %}</td>
+            <td class="text-end ft-mono text-primary">{% if r.transfer_amount %}Rs. {{ "{:,.0f}".format(r.transfer_amount) }}{% else %}—{% endif %}</td>
+            <td class="ft-mono small">{{ r.reference or '—' }}</td>
+            <td class="small">{{ r.description or '' }}</td>
+            {% if ft.embed %}
+            <td class="text-end text-nowrap">
+              {% if r.entry_id %}
+              <button type="button" class="btn btn-xs btn-light border cf-view-btn py-0 px-2" data-entry-id="{{ r.entry_id }}">View</button>
+              {% endif %}
+              {% if r.entry_id and r.source == 'MANUAL' %}
+                {% if r.status != 'voided' %}
+                <button type="button" class="btn btn-xs btn-outline-primary cf-edit-btn py-0 px-2" data-entry-id="{{ r.entry_id }}">Edit</button>
+                <form method="POST" action="{{ url_for('cash_flow') }}" class="d-inline" onsubmit="return confirm('Delete/void this transaction and reverse the account balance effect? Full audit history is retained.');">
+                  <input type="hidden" name="action" value="void_entry">
+                  <input type="hidden" name="entry_id" value="{{ r.entry_id }}">
+                  <input type="hidden" name="from_date" value="{{ ft.from_d.strftime('%Y-%m-%d') }}">
+                  <input type="hidden" name="to_date" value="{{ ft.to_d.strftime('%Y-%m-%d') }}">
+                  <input type="text" name="void_reason" class="form-control form-control-sm d-inline-block py-0 px-1" style="width:90px;font-size:0.75rem;" placeholder="Reason">
+                  <button class="btn btn-xs btn-outline-danger py-0 px-2" type="submit">Delete</button>
+                </form>
+                {% else %}
+                <form method="POST" action="{{ url_for('cash_flow') }}" class="d-inline">
+                  <input type="hidden" name="action" value="restore_entry">
+                  <input type="hidden" name="entry_id" value="{{ r.entry_id }}">
+                  <input type="hidden" name="from_date" value="{{ ft.from_d.strftime('%Y-%m-%d') }}">
+                  <input type="hidden" name="to_date" value="{{ ft.to_d.strftime('%Y-%m-%d') }}">
+                  <button class="btn btn-xs btn-outline-success py-0 px-2" type="submit">Restore</button>
+                </form>
+                {% endif %}
+              {% endif %}
+            </td>
+            {% endif %}
+          </tr>
+          {% else %}
+          <tr><td colspan="{% if ft.embed %}11{% else %}10{% endif %}" class="text-center text-muted py-4">No transactions match the current filters.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
