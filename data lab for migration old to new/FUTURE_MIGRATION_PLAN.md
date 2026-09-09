@@ -48,9 +48,21 @@ original constraints**.
 
 | Channel | Tool / artifact | Used for | Never for |
 |---|---|---|---|
-| **A. DB-level migration / cutover** | `FIRST CLASS DATA/migrate.py` (old schema/history → v44) + `load_into_amscopy9.py` (clean + copy into the app DB) | Bringing real data into a fresh app DB; moving between same-schema DBs; restoring a snapshot | — |
-| **B. Backups & restores** | SQLite online copy / `VACUUM INTO` / app's own backup infra (`app/services/backup.py`, `instance/storage/backups`) | Daily/weekly protection, rollback, restore drills | — |
+| **A1. In-app DB file channel (implemented 2026-09-09)** | **Import & Export → SQLite Database Backup / Restore** (`AMSCOPY9/blueprints/import_export/db_file_engine.py` + `db_file_pages.py`, page `/import_export/db_transfer`) | Backup/restore of the whole app DB from the running app: download `.db` snapshot (VACUUM INTO + metadata), preview uploads, **Replace** (clean all data then restore) or **Append** | — |
+| **A2. DB-level migration / cutover** | `FIRST CLASS DATA/migrate.py` (old schema/history → v44) + `load_into_amscopy9.py` (clean + copy into the app DB, run while the app is stopped) | The very first load of real data into a fresh app DB; moving between same-schema DBs offline | — |
+| **B. Backups & restores** | SQLite online copy / `VACUUM INTO` / the in-app `.db` export / app's own backup infra (`app/services/backup.py`) | Daily/weekly protection, rollback, restore drills | — |
 | **C. Human exports** | app Import & Export UI → xlsx/csv/pdf **read-only** downloads; small master templates (e.g. price lists) | Reading data in Excel, sharing numbers, tiny controlled uploads of master data | Whole-tenant moves, migrations, restores |
+
+> The in-app channel (A1) is the everyday tool for "import/export as a sqlite db file".  The
+> data-lab tools (A2) remain for the first-time load and offline moves.  Both produce/consume
+> plain v44 SQLite `.db` files — they are interchangeable: a file exported from the app can be
+> loaded by `load_into_amscopy9.py`, and a `FINAL DEPLOY` file can be restored through the app UI
+> (it is detected as a "generic" same-schema .db and checked column-exactly).
+>
+> **Why the app channel exists:** xlsx import/export has many problems (Excel type coercion,
+> sheet limits, verbatim-row raw imports that skip the purge contract, repeat-import duplication,
+> no native integrity checks).  A `.db` transfer keeps original ids, types, indexes and can be
+> verified with `PRAGMA integrity_check`.
 
 ### Channel A is now two stage-one tools (already proven on real data)
 
@@ -190,12 +202,21 @@ are investigated the same day, known ones only on the cadence below.
       so any DB can be traced to its parent (one file, committed next to `load_report.txt`).
 
 ### P2 — App-level changes (AMSCOPY9 code — go through the app's own repo/deploy flow)
-- [ ] In the Import & Export UI: relabel full-raw xlsx import as **"restore only from a verified
-      snapshot"** (or remove it from normal use), so a human can no longer accidentally wipe/replace
-      tenant data with a spreadsheet.
-- [ ] Add a **maintenance "replace DB" route** that only accepts a *verified* stage-2 artifact
-      (checksum + PASS report) — or document that the file-swap in §5 is the sanctioned path.
-- [ ] Export page: keep xlsx/csv/PDF export but mark it *reporting only*.
+- [x] **SQLite .db import/export channel in the app** (done 2026-09-09):
+      `Import & Export → SQLite Database Backup / Restore` (`/import_export/db_transfer`):
+      - Download full `.db` snapshot (VACUUM INTO, runtime noise stripped, provenance metadata,
+        magic header for self-describing downloads);
+      - Preview an upload before restoring (read-only, shows per-table rows + AMS/generic label);
+      - Restore modes: **replace** (cleans every AMS table the file carries, then restores with
+        original ids; requires typing `REPLACE` to confirm) and **append** (skips existing keys);
+      - Rejects anything that is not a valid SQLite database (xlsx and random .db files refused),
+        runs in one transaction with rollback, keeps the acting admin logged in, audits every run,
+        verifies `integrity_check` and reports relaxed unique indexes only where data demands.
+- [ ] In the Import & Export UI: mark the full-raw **xlsx** import cards as the **legacy/less-safe
+      path** ("for module-level work only") so a human never chooses a workbook for a whole-DB move.
+      (The new DB-file banner already directs users to the .db channel.)
+- [x] The data-lab pipeline (`migrate.py` + `load_into_amscopy9.py`) stays as the offline,
+      app-stopped route and can produce/consume the same files as the app channel.
 - [ ] Make `tools/consistency_report.py` output machine-readable baseline diffs (exit code != 0 on
       new warnings) so a post-cutover CI check can be wired to it.
 - [ ] Evaluate: move to PostgreSQL (concurrency, online backups, real FK enforcement). SQLite

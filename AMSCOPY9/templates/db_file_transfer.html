@@ -1,0 +1,240 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="container-fluid ui-v2">
+    <header class="ui-page-header mt-3">
+        <div>
+            <h1 class="ui-title">
+                <span class="ui-title-icon"><i class="bi bi-database"></i></span>
+                SQLite Database Backup / Restore
+            </h1>
+            <div class="ui-subtitle">
+                Full-data transfer as a <strong>.db file</strong> — the recommended channel.
+                No xlsx, no sheets, no Excel row limits: exact schema, original ids, native types.
+            </div>
+        </div>
+        <span class="badge rounded-pill text-bg-success px-3 py-2">
+            <i class="bi bi-database-check me-1"></i>db-file channel
+        </span>
+    </header>
+
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+        <a href="{{ url_for('import_export.import_export_page') }}" class="btn btn-outline-light btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Back to Import / Export Center
+        </a>
+        {% if summary.available %}
+        <span class="badge text-bg-secondary">
+            Live DB: {{ summary.rows }} rows · {{ summary.tables }} tables · {{ summary.size_mb }} MB
+            · integrity: {{ summary.integrity }}
+        </span>
+        {% endif %}
+    </div>
+
+    <div class="row g-4">
+        <!-- ================= EXPORT ================= -->
+        <div class="col-lg-6">
+            <section class="ui-card h-100 d-flex flex-column">
+                <div class="ui-card-header">
+                    <h3><i class="bi bi-file-earmark-arrow-down text-success"></i>Download Database Snapshot</h3>
+                    <span class="badge text-bg-success">Backup / Export</span>
+                </div>
+                <div class="ui-card-body d-flex flex-column flex-grow-1">
+                    <p class="text-white-50 mb-3">
+                        Download the whole database as one <strong>.db</strong> file. The snapshot is a
+                        consistent copy taken while the app keeps running (SQLite VACUUM INTO), so it is
+                        safe to use any time.
+                    </p>
+                    <ul class="small text-white-50 ps-3 mb-4">
+                        <li>Contains every AMS table with original primary keys and indexes.</li>
+                        <li>Runtime noise (login sessions, locks) is stripped; provenance metadata is embedded.</li>
+                        <li>Verify after download with any SQLite tool — or restore it back here any time.</li>
+                    </ul>
+                    <form method="POST" action="{{ url_for('import_export.db_export') }}" class="mt-auto">
+                        <button type="submit" class="btn btn-success w-100">
+                            <i class="bi bi-download me-1"></i>Download Full Database (.db)
+                        </button>
+                    </form>
+                </div>
+            </section>
+        </div>
+
+        <!-- ================= RESTORE ================= -->
+        <div class="col-lg-6">
+            <section class="ui-card h-100 d-flex flex-column">
+                <div class="ui-card-header">
+                    <h3><i class="bi bi-file-earmark-arrow-up text-warning"></i>Restore from a .db Snapshot</h3>
+                    <span class="badge text-bg-warning">Import / Restore</span>
+                </div>
+                <div class="ui-card-body d-flex flex-column flex-grow-1">
+                    <div class="ui-field mb-3">
+                        <label for="dbFileInput" class="ui-label">Database file (.db / .zip / .tgz)</label>
+                        <input id="dbFileInput" type="file" class="form-control" accept=".db,.sqlite,.sqlite3,.zip,.tgz,.gz">
+                        <span class="ui-helper">Files exported by AMS, or a zip/tgz containing exactly one .db file.</span>
+                    </div>
+                    <div class="ui-field mb-3">
+                        <label for="dbModeSelect" class="ui-label">Restore mode</label>
+                        <select id="dbModeSelect" class="form-select">
+                            <option value="append">Append — add rows that are not already present (safe)</option>
+                            <option value="replace">Replace — CLEAN the app tables first, then copy the snapshot fully</option>
+                        </select>
+                        <span class="ui-helper">
+                            Replace is the "take fresh data fully" mode: it deletes every AMS row the file
+                            contains, then restores the file's rows with original ids.
+                        </span>
+                    </div>
+                    <div id="replaceConfirmWrap" class="ui-field mb-3 d-none">
+                        <label for="dbReplaceConfirm" class="ui-label text-danger">
+                            Type REPLACE to confirm cleaning the app data first
+                        </label>
+                        <input id="dbReplaceConfirm" type="text" class="form-control" placeholder="REPLACE" autocomplete="off">
+                    </div>
+
+                    <button id="dbPreviewBtn" type="button" class="btn btn-outline-info w-100 mb-2">
+                        <i class="bi bi-eye me-1"></i>Inspect file (read-only preview)
+                    </button>
+                    <button id="dbRestoreBtn" type="button" class="btn btn-warning w-100" disabled>
+                        <i class="bi bi-arrow-repeat me-1"></i>Restore Database Snapshot
+                    </button>
+
+                    <div id="dbResultWrap" class="mt-3"></div>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const fileInput = document.getElementById('dbFileInput');
+    const modeSelect = document.getElementById('dbModeSelect');
+    const confirmWrap = document.getElementById('replaceConfirmWrap');
+    const confirmInput = document.getElementById('dbReplaceConfirm');
+    const previewBtn = document.getElementById('dbPreviewBtn');
+    const restoreBtn = document.getElementById('dbRestoreBtn');
+    const resultWrap = document.getElementById('dbResultWrap');
+
+    function mode() { return modeSelect.value; }
+
+    function syncUi() {
+        const replacing = mode() === 'replace';
+        confirmWrap.classList.toggle('d-none', !replacing);
+        restoreBtn.disabled = !fileInput.files.length ||
+            (replacing && confirmInput.value.trim().toUpperCase() !== 'REPLACE');
+        if (!replacing) resultWrap.innerHTML = '';
+    }
+    fileInput.addEventListener('change', syncUi);
+    modeSelect.addEventListener('change', syncUi);
+    confirmInput.addEventListener('input', syncUi);
+    syncUi();
+
+    function setResult(html, cls) {
+        resultWrap.innerHTML =
+            '<div class="alert ' + (cls || 'alert-info') + ' small mb-0">' + html + '</div>';
+    }
+
+    async function postForm(url, body) {
+        const resp = await fetch(url, {method: 'POST', body: body});
+        let data = null;
+        try { data = await resp.json(); } catch (e) { /* non-JSON */ }
+        if (!resp.ok) {
+            throw new Error((data && data.error) || ('HTTP ' + resp.status));
+        }
+        return data || {};
+    }
+
+    function tableCountsHtml(report) {
+        if (!report || !report.tables) return '';
+        const rows = (report.tables || []).map(function (t) {
+            return '<tr><td>' + t.table + '</td>' +
+                '<td class="text-end">' + t.source_rows + '</td>' +
+                '<td class="text-end">' + (t.inserted == null ? '—' : t.inserted) + '</td>' +
+                '<td class="text-end">' + (t.skipped == null ? '—' : t.skipped) + '</td></tr>';
+        }).join('');
+        return '<div class="table-responsive" style="max-height:260px;overflow:auto">' +
+            '<table class="table table-sm table-dark table-striped mb-0 small">' +
+            '<thead><tr><th>Table</th><th class="text-end">Source rows</th>' +
+            '<th class="text-end">Restored</th><th class="text-end">Skipped</th></tr></thead>' +
+            '<tbody>' + rows + '</tbody></table></div>';
+    }
+
+    previewBtn.addEventListener('click', async function () {
+        if (!fileInput.files.length) { setResult('Choose a file first.', 'alert-warning'); return; }
+        previewBtn.disabled = true;
+        try {
+            const fd = new FormData();
+            fd.append('file', fileInput.files[0]);
+            const out = await postForm('{{ url_for("import_export.db_restore_preview") }}', fd);
+            if (!out.ok) { setResult('File rejected: ' + out.error, 'alert-danger'); return; }
+            const meta = out.meta || {};
+            let html = '<div class="fw-bold mb-2"><i class="bi bi-check-circle text-success"></i> ' +
+                'Valid AMS database snapshot</div>';
+            html += '<div class="mb-2">' +
+                'Snapshot id: ' + (meta.snapshot_id || '—').slice(0, 12) + ' · created: ' +
+                (meta.created_at || '—') + ' · rows: ' + (out.row_total || 0) +
+                (out.is_ams_export ? ' · <span class="text-success">AMS export</span>' : ' · <span class="text-warning">generic .db (no AMS metadata)</span>') +
+                '</div>';
+            html += tableCountsHtml({tables: Object.keys(out.tables || {}).map(function (t) {
+                return {table: t, source_rows: out.tables[t], inserted: '—', skipped: '—'};
+            })});
+            setResult(html, 'alert-success');
+            syncUi();
+        } catch (e) {
+            setResult('Preview failed: ' + e.message, 'alert-danger');
+        } finally {
+            previewBtn.disabled = false;
+        }
+    });
+
+    restoreBtn.addEventListener('click', async function () {
+        if (!fileInput.files.length) return;
+        const replacing = mode() === 'replace';
+        if (replacing && !window.confirm(
+            'This cleans the app data in the selected tables first, then restores the snapshot. ' +
+            'There is NO undo. Continue?')) {
+            return;
+        }
+        restoreBtn.disabled = true;
+        setResult('<i class="bi bi-hourglass-split"></i> Restoring — this may take a moment…', 'alert-info');
+        try {
+            const fd = new FormData();
+            fd.append('file', fileInput.files[0]);
+            fd.append('mode', mode());
+            if (replacing) fd.append('confirm', confirmInput.value.trim());
+            const out = await postForm('{{ url_for("import_export.db_restore") }}', fd);
+            const relaxed = out.relaxed || [];
+            const errors = out.errors || [];
+            let cls = out.ok && !errors.length ? 'alert-success' : 'alert-warning';
+            let html = '<div class="fw-bold mb-1">Restore ' + (out.mode || '') +
+                ' finished — inserted ' + (out.inserted || 0) + ' rows' +
+                ((out.skipped || 0) ? ', skipped ' + out.skipped : '') + '</div>';
+            if (out.note_actor) html += '<div class="small text-info mb-1">' + out.note_actor + '</div>';
+            if (errors.length) {
+                html += '<div class="small text-danger mb-1">' +
+                    errors.map(function (e) { return '⚠ ' + e; }).join('<br>') + '</div>';
+            }
+            html += tableCountsHtml(out);
+            if (relaxed.length) {
+                html += '<div class="small text-warning mt-2 mb-0">Relaxed unique indexes ' +
+                    '(data does not satisfy them — rows kept):<br>' +
+                    relaxed.slice(0, 10).map(function (r) { return '• ' + r; }).join('<br>') +
+                    (relaxed.length > 10 ? '<br>… and ' + (relaxed.length - 10) + ' more' : '') +
+                    '</div>';
+            }
+            if (out.ok && !errors.length) {
+                html += '<div class="small text-success mt-2"><i class="bi bi-check-circle"></i> ' +
+                    'Verification: integrity ok — reload the page to see the restored data.</div>';
+            }
+            setResult(html, cls);
+            fileInput.value = '';
+            if (confirmInput) confirmInput.value = '';
+            syncUi();
+        } catch (e) {
+            setResult('Restore failed: ' + e.message, 'alert-danger');
+        } finally {
+            restoreBtn.disabled = false;
+            syncUi();
+        }
+    });
+})();
+</script>
+{% endblock %}
