@@ -6,6 +6,14 @@
 **Status:** ✅ COMPLETE & VERIFIED (no data loss, no broken references)
 **Owner/contact:** Rehman Ahmed (repo owner)
 
+> **STAGE 2 ADDENDUM (2026-09-09, same day):** the migrated DB was loaded into the AMSCOPY9 app
+> database with the new "clean then db-to-db copy" pipeline (no xlsx):
+> `load_into_amscopy9.py --confirm` → GATE → BACKUP → **CLEAN (wipes all rows of the app DB)** →
+> LOAD (original ids) → VERIFY → DEPLOY. Result **PASS**: app DB equals `FIRST CLASS DATA`
+> row-for-row (29,266 rows, integrity ok, 0 orphan FKs). Deployable artifact + report:
+> `FINAL DEPLOY/` (`ahmed_cement_v44_fresh.db`, `.sha256`, `load_report.txt`, `README.md`).
+> Full future plan: `FUTURE_MIGRATION_PLAN.md`.
+
 ---
 
 ## 0. How to read this report (future-work tracking)

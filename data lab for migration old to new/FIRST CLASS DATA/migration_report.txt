@@ -1,4 +1,4 @@
-Migration run : 2026-09-09 12:34:43.529883
+Migration run : 2026-09-09 13:05:44.375743
 OLD (source)  : /home/user/Data-Migration/data lab for migration old to new/ahmed_cement.db
 NEW (schema)  : /home/user/Data-Migration/data lab for migration old to new/NewData/ahmed_cement_v44_fresh.db
 OUT (result)  : /home/user/Data-Migration/data lab for migration old to new/FIRST CLASS DATA/ahmed_cement_migrated.db
@@ -55,8 +55,8 @@ OUT (result)  : /home/user/Data-Migration/data lab for migration old to new/FIRS
 [REPLACE] supplier_payment               seed=     0 -> old=    79  uniq_recreated=3
 [REPLACE] user_login_session             seed=     2 -> old=    28  uniq_recreated=1
 [REPLACE] waive_off                      seed=     0 -> old=   425  uniq_recreated=0
-[CLEAR  ] cash_day_lock                  seed=     1 -> 0
 [CLEAR  ] cash_day_account_position      seed=     5 -> 0
+[CLEAR  ] cash_day_lock                  seed=     1 -> 0
 [MERGE  ] user                  kept=2 + old_users=7 (ids remapped)
           user id map (old->new): {1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8, 7: 9}
           user-id refs remapped: ['accounting_audit_log.user_id', 'audit_log.user_id', 'user_login_session.user_id']
