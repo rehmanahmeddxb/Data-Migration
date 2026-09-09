@@ -137,6 +137,14 @@ def create_app(test_config: dict | None = None) -> Flask:
         # Do not create backup database files from the web process. Backups
         # remain available only through an explicit maintenance operation.
         BACKUP_EMBEDDED_SCHEDULER=(os.environ.get("BACKUP_EMBEDDED_SCHEDULER", "0").strip().lower() not in ("0", "false", "no")),
+        # Versioned automatic schema migrations (app/services/auto_migrate.py):
+        # numbered NNNN_*.sql files in app/migrations/ apply on every boot.
+        MIGRATIONS_DIR=os.environ.get(
+            "MIGRATIONS_DIR", str(Path(app.root_path) / "migrations")
+        ),
+        MIGRATIONS_ALLOW_DESTRUCTIVE=(
+            os.environ.get("MIGRATIONS_ALLOW_DESTRUCTIVE") or "0"
+        ).strip().lower() in ("1", "true", "on", "yes"),
         TESTING=False,
     )
     if test_config:
@@ -317,6 +325,25 @@ def create_app(test_config: dict | None = None) -> Flask:
                 exc_info=True,
             )
             app.config["AMS_BOOTSTRAP_ERROR"] = traceback.format_exc()
+
+        # Automatic versioned schema migrations. Runs on every start (tests,
+        # local runs, and every deployment reload) after the ORM bootstrap so
+        # model tables already exist; only pending numbered SQL files in
+        # app/migrations/ are applied and recorded in migration_history.
+        # A failure here never blocks boot — the app continues on the current
+        # schema and the error is visible in the logs.
+        try:
+            from app.services.auto_migrate import (
+                run_sql_migrations as _run_auto_migrations,
+            )
+
+            app.config["AMS_MIGRATION_REPORT"] = _run_auto_migrations()
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "Automatic schema migrations failed to run at startup; "
+                "the app continues on the current schema.",
+                exc_info=True,
+            )
 
     # Start once at application startup, never from a user request. The
     # cross-process filesystem lock prevents duplicate work under Gunicorn.

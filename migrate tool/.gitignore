@@ -1,0 +1,7 @@
+output/*.db
+output/*.db.report.txt
+output/*.report.json
+drop/*.db
+drop/*.db.report.txt
+__pycache__/
+*.pyc
