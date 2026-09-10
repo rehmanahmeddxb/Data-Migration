@@ -1,21 +1,36 @@
 # Data Migration — Old data → new v44 schema
 
-**Date:** 2026-09-09  
+**Date:** 2026-09-09 (event) · **2026-09-10 (final old data re-run — current)**  
 **Source (old):** `ahmed_cement.db`  (production data, SQLite, ~7.6 MB)  
 **Schema (new):** `NewData/ahmed_cement_v44_fresh.db`  (v44 fresh install + seed)  
 **Result:** `FIRST CLASS DATA/ahmed_cement_migrated.db`  (this folder)  
 **Script:** `FIRST CLASS DATA/migrate.py`  (re-runnable, idempotent)  
-**Report:** `FIRST CLASS DATA/migration_report.txt`
+**Report:** `FIRST CLASS DATA/migration_report.txt`  
+**Plan:** `../MIGRATION_PLAN.md` · **Dated backup of the current run:** `2026-09-10/`
 
-> **STATUS (2026-09-10):** `migrate.py` is now a thin wrapper around the
+> **STATUS (2026-09-10, final old data — CURRENT):** the owner replaced
+> `ahmed_cement.db` with the **final old data** (md5 `74d9f4e7…`, 29,669 rows —
+> six more weeks of business than the 09-09 file). The migration was re-run
+> with the packaged **"migrate tool"**: **RESULT: PASS**, value parity 52
+> tables / 0 mismatches, full index parity (`uq_entry_auto_bill_no` restored —
+> no relaxed constraints), **93 voided/cancelled rows purged** (62 void +
+> 26 cancel + 5 cascade) → **29,586 rows**. The result was loaded into the
+> app (`AMSCOPY9/instance/ahmed_cement_v44_fresh.db`, import verification
+> PASS), `instance/health_snapshot.json` was deleted before the first boot
+> per the runbook, and the app runs with this data: 75/75 pages render, real
+> login works, 154/154 app tests pass. This run's exact artifacts are kept in
+> **`2026-09-10/`** (db + `.amsdb` + reports + byte-exact input copies).
+> Day-1 item still open: save `/settings` once (see `../MIGRATION_PLAN.md` §6).
+
+> **STATUS (2026-09-10, earlier):** `migrate.py` is now a thin wrapper around the
 > packaged **"migrate tool"** engine (same inputs / output / report), and the
 > committed output was **regenerated with the current no-void purge policy**:
-> it now holds **29,179 rows** (the 2026-09-09 file held 29,266 including 87
+> it then held **29,179 rows** (the 2026-09-09 file held 29,266 including 87
 > voided/cancelled rows, which the policy removes: 61 `is_void=1` + 24
 > cancelled `entry` + 2 cascaded children).  Everything below remains true;
-> wherever a row count is quoted, the regenerated (post-purge) numbers apply.
-> Re-run any time with the same command — the original pre-policy output can
-> be reproduced with the tool's `--keep-voided` flag.
+> wherever a row count is quoted, the latest (post-purge, final-old-data)
+> numbers apply — see the status block above. Re-run any time with the same
+> command — the pre-policy output can be reproduced with `--keep-voided`.
 
 ---
 

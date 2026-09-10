@@ -34,3 +34,9 @@ config.txt
 # Portable full-database snapshot containers (runtime artifacts, keep out of git)
 *.amsdb
 instance/*.amsdb
+# Runtime import/health artifacts (full_db_sync UI runs, tests, boot) —
+# the pre-existing tracked files stay tracked; this only stops new noise.
+instance/.tmp/import_reports/
+instance/import_reports/
+instance/health/
+instance/migration/*.db

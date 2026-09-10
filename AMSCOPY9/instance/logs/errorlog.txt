@@ -1213,3 +1213,40 @@ sqlalchemy.exc.IntegrityError: (builtins.Exception) UNIQUE constraint failed: de
 2026-08-27 07:03:53,101 WARNING [app.services.v44_schema]: v4.4 schema file not found at /home/user/AMSCOPY9/v44/SCHEMA_v4_4.sql; falling back to the ORM schema bootstrap.
 2026-08-27 07:04:01,446 WARNING [security]: CSRF rejected: endpoint=auth.login ip=127.0.0.1
 2026-08-27 07:04:33,683 WARNING [security]: CSRF rejected: endpoint=reports.daily_reconciliation ip=127.0.0.1
+2026-09-10 16:34:07,886 WARNING [security]: CSRF rejected: endpoint=reports.daily_reconciliation ip=127.0.0.1
+2026-09-10 16:34:39,429 ERROR [AMS-Deploy]: Webhook called but AMS_WEBHOOK_TOKEN is not set.
+2026-09-10 16:34:44,245 WARNING [AMS-Deploy]: Unauthorized deployment request (missing/invalid token or GitHub signature). X-GitHub-Event='push'
+2026-09-10 16:34:44,246 WARNING [AMS-Deploy]: Unauthorized deployment request (missing/invalid token or GitHub signature). X-GitHub-Event='push'
+2026-09-10 16:34:50,980 ERROR [AMS-Deploy]: [Ahmed] DEPLOYMENT FAILED: Invalid deployment configuration:
+  - Required secret env var AMS_WEBHOOK_TOKEN is not set (the GitHub webhook token).
+Traceback (most recent call last):
+  File "/home/user/Data-Migration/AMSCOPY9/deploy/deployer.py", line 309, in deploy
+    assert_valid_config(require_secrets=True, check_paths=False)
+  File "/home/user/Data-Migration/AMSCOPY9/config.py", line 342, in assert_valid_config
+    raise ConfigError(msg)
+config.ConfigError: Invalid deployment configuration:
+  - Required secret env var AMS_WEBHOOK_TOKEN is not set (the GitHub webhook token).
+2026-09-10 16:34:50,981 WARNING [AMS-Deploy]: Skipping runtime restore: preserve step did not complete. Verify the live DB immediately.
+2026-09-10 16:35:58,084 WARNING [app.services.files_pdf]: flask_weasyprint is not installed; using the ReportLab PDF fallback.
+2026-09-10 16:36:56,908 WARNING [auth]: Ignoring malformed session user id 'Admin'
+2026-09-10 16:38:10,582 WARNING [security]: CSRF rejected: endpoint=sales.add_payment ip=127.0.0.1
+2026-09-10 16:38:10,584 WARNING [security]: CSRF rejected: endpoint=sales.add_direct_sale ip=127.0.0.1
+2026-09-10 16:38:10,586 WARNING [security]: CSRF rejected: endpoint=ops.grn ip=127.0.0.1
+2026-09-10 16:38:26,297 ERROR [app]: Pre-wipe safety backup failed.
+Traceback (most recent call last):
+  File "/home/user/Data-Migration/AMSCOPY9/app/blueprints/misc/_wipe_delete_selected_data.py", line 118, in delete_selected_data
+    backup_info = _create_pre_wipe_safety_backups(targets)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/Data-Migration/AMSCOPY9/tests/test_predator_regressions.py", line 525, in boom
+    raise RuntimeError(leak)
+RuntimeError: (sqlite3.IntegrityError) FOREIGN KEY constraint failed [SQL: DELETE FROM grn_item] (Background on this error at: https://sqlalche.me/e/20/gkpj)
+2026-09-10 16:38:29,024 ERROR [sales]: Direct sale save failed
+Traceback (most recent call last):
+  File "/home/user/Data-Migration/AMSCOPY9/app/blueprints/sales/_direct_sales_add_direct_sale.py", line 162, in add_direct_sale
+    get_or_create_delivery_person(driver_name)
+  File "/home/user/Data-Migration/AMSCOPY9/tests/test_predator_regressions.py", line 551, in boom
+    raise IntegrityError(
+sqlalchemy.exc.IntegrityError: (builtins.Exception) UNIQUE constraint failed: delivery_person.name
+[SQL: INSERT INTO delivery_person (name, phone) VALUES (?, ?)]
+[parameters: {'name': 'D', 'phone': None}]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)

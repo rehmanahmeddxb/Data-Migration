@@ -6,7 +6,20 @@
 **Status:** ✅ COMPLETE & VERIFIED (no data loss, no broken references)
 **Owner/contact:** Rehman Ahmed (repo owner)
 
-> **STATUS (2026-09-10):** this report records the 2026-09-09 event and
+> **STATUS (2026-09-10, second update — FINAL OLD DATA, current):** the owner
+> replaced `ahmed_cement.db` with the **final old data** (md5 `74d9f4e7…`,
+> 29,669 rows — production continued after the 09-09 copy: 22 tables grew).
+> The migration was **re-run with the "migrate tool"**: `RESULT: PASS`,
+> 29,669 → **29,586 rows** (93 voided/cancelled purged), value parity 0
+> mismatches, **0 relaxed indexes** (`uq_entry_auto_bill_no` restored after
+> the purge), then loaded into the app via `full_db_sync`
+> (clean_replace, verification PASS, 0 FK violations). `instance/health_snapshot.json`
+> was deleted before the first boot (runbook) and the **app runs with this
+> data** (75/75 pages, real login, 154/154 tests). Dated backup of this run:
+> **`FIRST CLASS DATA/2026-09-10/`** · plan + full commands:
+> **`MIGRATION_PLAN.md`**.
+
+> **STATUS (2026-09-10, first update):** this report records the 2026-09-09 event and
 > remains the history of record. Two things have changed since:
 > 1. `FIRST CLASS DATA/migrate.py` is now a wrapper around the packaged
 >    **"migrate tool"** (repo root) with all audit fixes (D-1…D-6, G1…G5), and

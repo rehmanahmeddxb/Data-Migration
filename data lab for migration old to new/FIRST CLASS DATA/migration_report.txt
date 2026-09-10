@@ -1,23 +1,23 @@
 ==============================================================================
 AMS DATABASE MIGRATION REPORT
 ==============================================================================
-run at        : 2026-09-10 09:40:18
-OLD (source)  : /home/user/Data-Migration/data lab for migration old to new/ahmed_cement.db
-NEW (schema)  : /home/user/Data-Migration/data lab for migration old to new/NewData/ahmed_cement_v44_fresh.db
-OUT (result)  : /home/user/Data-Migration/data lab for migration old to new/FIRST CLASS DATA/ahmed_cement_migrated.db
+run at        : 2026-09-10 16:29:17
+OLD (source)  : data lab for migration old to new/ahmed_cement.db
+NEW (schema)  : data lab for migration old to new/NewData/ahmed_cement_v44_fresh.db
+OUT (result)  : data lab for migration old to new/FIRST CLASS DATA/2026-09-10/ahmed_cement_migrated.db
 old tables    : 64   new-schema tables: 69
 
 [LOAD] account                          seed_cleared=     5 -> old_rows=    12  indexes_recreated=13
 [LOAD] account_category                 seed_cleared=     5 -> old_rows=     6  indexes_recreated=2
 [LOAD] account_reconciliation           seed_cleared=     0 -> old_rows=     0  indexes_recreated=8
-[LOAD] account_transaction              seed_cleared=   539 -> old_rows=  1059  indexes_recreated=11
-[LOAD] accounting_audit_log             seed_cleared=    35 -> old_rows=   223  indexes_recreated=7
-[LOAD] audit_log                        seed_cleared=  1520 -> old_rows=  1630  indexes_recreated=2
+[LOAD] account_transaction              seed_cleared=   539 -> old_rows=  1071  indexes_recreated=11
+[LOAD] accounting_audit_log             seed_cleared=    35 -> old_rows=   228  indexes_recreated=7
+[LOAD] audit_log                        seed_cleared=  1520 -> old_rows=  1705  indexes_recreated=2
 [LOAD] bill_counter                     seed_cleared=     2 -> old_rows=     7  indexes_recreated=1
-[LOAD] booking                          seed_cleared=     0 -> old_rows=   427  indexes_recreated=4
-[LOAD] booking_allocation               seed_cleared=     0 -> old_rows=  1423  indexes_recreated=3
+[LOAD] booking                          seed_cleared=     0 -> old_rows=   430  indexes_recreated=4
+[LOAD] booking_allocation               seed_cleared=     0 -> old_rows=  1464  indexes_recreated=3
 [LOAD] booking_allocation_repair_archive seed_cleared=     0 -> old_rows=    15  indexes_recreated=3
-[LOAD] booking_item                     seed_cleared=     0 -> old_rows=   999
+[LOAD] booking_item                     seed_cleared=     0 -> old_rows=  1003
 [LOAD] cash_flow_category               seed_cleared=    11 -> old_rows=    12  indexes_recreated=3
 [LOAD] cash_flow_difference_adjustment  seed_cleared=     0 -> old_rows=     1  indexes_recreated=4
 [LOAD] cash_flow_entry                  seed_cleared=   537 -> old_rows=     0  indexes_recreated=17
@@ -25,16 +25,16 @@ old tables    : 64   new-schema tables: 69
 [LOAD] cash_flow_party                  seed_cleared=   316 -> old_rows=     0  indexes_recreated=3
 [LOAD] cash_flow_reconciliation_audit   seed_cleared=     0 -> old_rows=     0  indexes_recreated=3
 [LOAD] cash_flow_subcategory            seed_cleared=     0 -> old_rows=    10  indexes_recreated=3
-[LOAD] client                           seed_cleared=     1 -> old_rows=   323  indexes_recreated=2
+[LOAD] client                           seed_cleared=     1 -> old_rows=   324  indexes_recreated=2
 [LOAD] delivery                         seed_cleared=     0 -> old_rows=     0  indexes_recreated=1
 [LOAD] delivery_item                    seed_cleared=     0 -> old_rows=     0
 [LOAD] delivery_person                  seed_cleared=     0 -> old_rows=    15  indexes_recreated=3
 [LOAD] delivery_person_payment          seed_cleared=     0 -> old_rows=     0  indexes_recreated=15
 [LOAD] delivery_rent                    seed_cleared=     0 -> old_rows=  1038  indexes_recreated=5
-[LOAD] direct_sale                      seed_cleared=     0 -> old_rows=  2719  indexes_recreated=8
+[LOAD] direct_sale                      seed_cleared=     0 -> old_rows=  2757  indexes_recreated=8
 [LOAD] direct_sale_draft                seed_cleared=     0 -> old_rows=     0  indexes_recreated=2
-[LOAD] direct_sale_item                 seed_cleared=     0 -> old_rows=  5048
-[LOAD] entry                            seed_cleared=     1 -> old_rows=  5259  indexes_recreated=9  RELAXED=['uq_entry_auto_bill_no (UNIQUE constraint failed: entry.auto_bill_no)']
+[LOAD] direct_sale_item                 seed_cleared=     0 -> old_rows=  5114
+[LOAD] entry                            seed_cleared=     1 -> old_rows=  5330  indexes_recreated=9  RELAXED=['uq_entry_auto_bill_no (UNIQUE constraint failed: entry.auto_bill_no)']
 [LOAD] fbm_cash_drawer_category         seed_cleared=     0 -> old_rows=     6  indexes_recreated=3
 [LOAD] fbm_cash_drawer_entry            seed_cleared=     0 -> old_rows=     2  indexes_recreated=5
 [LOAD] fbm_client                       seed_cleared=     0 -> old_rows=     0  indexes_recreated=1
@@ -43,22 +43,22 @@ old tables    : 64   new-schema tables: 69
 [LOAD] follow_up_contact                seed_cleared=     0 -> old_rows=     4  indexes_recreated=1
 [LOAD] follow_up_reminder               seed_cleared=     0 -> old_rows=    25  indexes_recreated=1
 [LOAD] future_account_audit_log         seed_cleared=     0 -> old_rows=     0  indexes_recreated=1
-[LOAD] grn                              seed_cleared=     1 -> old_rows=    49  indexes_recreated=5
-[LOAD] grn_allocation                   seed_cleared=     0 -> old_rows=    65  indexes_recreated=4
-[LOAD] grn_item                         seed_cleared=     1 -> old_rows=    49  indexes_recreated=2
-[LOAD] invoice                          seed_cleared=     0 -> old_rows=  2378
+[LOAD] grn                              seed_cleared=     1 -> old_rows=    50  indexes_recreated=5
+[LOAD] grn_allocation                   seed_cleared=     0 -> old_rows=    74  indexes_recreated=4
+[LOAD] grn_item                         seed_cleared=     1 -> old_rows=    50  indexes_recreated=2
+[LOAD] invoice                          seed_cleared=     0 -> old_rows=  2389
 [LOAD] material                         seed_cleared=     1 -> old_rows=    68  indexes_recreated=2
 [LOAD] material_category                seed_cleared=     2 -> old_rows=    12  indexes_recreated=1
-[LOAD] material_return                  seed_cleared=     0 -> old_rows=    82  indexes_recreated=6
-[LOAD] material_return_item             seed_cleared=     0 -> old_rows=   111  indexes_recreated=1
-[LOAD] payment                          seed_cleared=     0 -> old_rows=   917  indexes_recreated=14
-[LOAD] pending_bill                     seed_cleared=     0 -> old_rows=  1702  indexes_recreated=8
+[LOAD] material_return                  seed_cleared=     0 -> old_rows=    83  indexes_recreated=6
+[LOAD] material_return_item             seed_cleared=     0 -> old_rows=   113  indexes_recreated=1
+[LOAD] payment                          seed_cleared=     0 -> old_rows=   922  indexes_recreated=14
+[LOAD] pending_bill                     seed_cleared=     0 -> old_rows=  1718  indexes_recreated=8
 [LOAD] recon_basket                     seed_cleared=     0 -> old_rows=     0  indexes_recreated=1
-[LOAD] sale_delivery_persons            seed_cleared=     0 -> old_rows=  3020  indexes_recreated=4
+[LOAD] sale_delivery_persons            seed_cleared=     0 -> old_rows=  3065  indexes_recreated=4
 [LOAD] supplier                         seed_cleared=     1 -> old_rows=     7  indexes_recreated=2
-[LOAD] supplier_payment                 seed_cleared=     0 -> old_rows=    79  indexes_recreated=14
-[LOAD] user_login_session               seed_cleared=     2 -> old_rows=    28  indexes_recreated=7
-[LOAD] waive_off                        seed_cleared=     0 -> old_rows=   425  indexes_recreated=6
+[LOAD] supplier_payment                 seed_cleared=     0 -> old_rows=    80  indexes_recreated=14
+[LOAD] user_login_session               seed_cleared=     2 -> old_rows=    30  indexes_recreated=7
+[LOAD] waive_off                        seed_cleared=     0 -> old_rows=   428  indexes_recreated=6
 [CLEAR] cash_day_account_position        seed=     5 -> 0
 [CLEAR] cash_day_lock                    seed=     1 -> 0
 [MERGE] user kept_from_new=2 old_users_added=7  ids remapped: {1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 8, 7: 9}
@@ -68,14 +68,24 @@ old tables    : 64   new-schema tables: 69
 PURGE — NO VOIDED OR CANCELLED DATA IS CARRIED
 ==============================================================================
   table                            total   void  cancel  cascade  orphan    kept
-  account_transaction               1059     13       0        0       0    1046
-  entry                             5259     31      24        0       0    5204
-  material_return                     82      0       0        1       0      81
-  material_return_item               111      0       0        1       0     110
-  payment                            917     13       0        0       0     904
-  waive_off                          425      4       0        0       0     421
-  TOTAL                             7853     61      24        2       0    7766
+  account_transaction               1071     13       0        0       0    1058
+  entry                             5330     31      26        0       0    5273
+  material_return                     83      0       0        2       0      81
+  material_return_item               113      0       0        3       0     110
+  payment                            922     14       0        0       0     908
+  waive_off                          428      4       0        0       0     424
+  TOTAL                             7947     62      26        5       0    7854
   Children of purged rows are purged with them, so no orphan foreign keys are left behind.
+
+==============================================================================
+INDEX RESTORED — NO RELAXATION NEEDED AFTER ALL
+==============================================================================
+  These unique indexes were relaxed while loading because the old
+  file had duplicate values in them.  The rows that duplicated were
+  voided / cancelled rows the purge removed, so the index now holds
+  and is re-created in the output — full template parity, no relaxed
+  constraints shipped, and nothing for the operator to clean up:
+  [INDEX] entry.uq_entry_auto_bill_no recreated (no duplicate values remain)
 
 ==============================================================================
 VERIFICATION
@@ -83,14 +93,14 @@ VERIFICATION
   account                          old=    12 new_seed=     5 migrated=    12 expect=    12 [OK]
   account_category                 old=     6 new_seed=     5 migrated=     6 expect=     6 [OK]
   account_reconciliation           old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
-  account_transaction              old=  1059 new_seed=   539 migrated=  1046 expect=  1046 [OK]
-  accounting_audit_log             old=   223 new_seed=    35 migrated=   223 expect=   223 [OK]
-  audit_log                        old=  1630 new_seed=  1520 migrated=  1630 expect=  1630 [OK]
+  account_transaction              old=  1071 new_seed=   539 migrated=  1058 expect=  1058 [OK]
+  accounting_audit_log             old=   228 new_seed=    35 migrated=   228 expect=   228 [OK]
+  audit_log                        old=  1705 new_seed=  1520 migrated=  1705 expect=  1705 [OK]
   bill_counter                     old=     7 new_seed=     2 migrated=     7 expect=     7 [OK]
-  booking                          old=   427 new_seed=     0 migrated=   427 expect=   427 [OK]
-  booking_allocation               old=  1423 new_seed=     0 migrated=  1423 expect=  1423 [OK]
+  booking                          old=   430 new_seed=     0 migrated=   430 expect=   430 [OK]
+  booking_allocation               old=  1464 new_seed=     0 migrated=  1464 expect=  1464 [OK]
   booking_allocation_repair_archive old=    15 new_seed=     0 migrated=    15 expect=    15 [OK]
-  booking_item                     old=   999 new_seed=     0 migrated=   999 expect=   999 [OK]
+  booking_item                     old=  1003 new_seed=     0 migrated=  1003 expect=  1003 [OK]
   cash_day_account_position        (new-schema only) seed=     5 ->      0 [OK by design]
   cash_day_lock                    (new-schema only) seed=     1 ->      0 [OK by design]
   cash_flow_category               old=    12 new_seed=    11 migrated=    12 expect=    12 [OK]
@@ -100,16 +110,16 @@ VERIFICATION
   cash_flow_party                  old=     0 new_seed=   316 migrated=     0 expect=     0 [OK]
   cash_flow_reconciliation_audit   old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   cash_flow_subcategory            old=    10 new_seed=     0 migrated=    10 expect=    10 [OK]
-  client                           old=   323 new_seed=     1 migrated=   323 expect=   323 [OK]
+  client                           old=   324 new_seed=     1 migrated=   324 expect=   324 [OK]
   delivery                         old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   delivery_item                    old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   delivery_person                  old=    15 new_seed=     0 migrated=    15 expect=    15 [OK]
   delivery_person_payment          old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   delivery_rent                    old=  1038 new_seed=     0 migrated=  1038 expect=  1038 [OK]
-  direct_sale                      old=  2719 new_seed=     0 migrated=  2719 expect=  2719 [OK]
+  direct_sale                      old=  2757 new_seed=     0 migrated=  2757 expect=  2757 [OK]
   direct_sale_draft                old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
-  direct_sale_item                 old=  5048 new_seed=     0 migrated=  5048 expect=  5048 [OK]
-  entry                            old=  5259 new_seed=     1 migrated=  5204 expect=  5204 [OK]
+  direct_sale_item                 old=  5114 new_seed=     0 migrated=  5114 expect=  5114 [OK]
+  entry                            old=  5330 new_seed=     1 migrated=  5273 expect=  5273 [OK]
   fbm_cash_drawer_category         old=     6 new_seed=     0 migrated=     6 expect=     6 [OK]
   fbm_cash_drawer_entry            old=     2 new_seed=     0 migrated=     2 expect=     2 [OK]
   fbm_client                       old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
@@ -118,37 +128,37 @@ VERIFICATION
   follow_up_contact                old=     4 new_seed=     0 migrated=     4 expect=     4 [OK]
   follow_up_reminder               old=    25 new_seed=     0 migrated=    25 expect=    25 [OK]
   future_account_audit_log         old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
-  grn                              old=    49 new_seed=     1 migrated=    49 expect=    49 [OK]
-  grn_allocation                   old=    65 new_seed=     0 migrated=    65 expect=    65 [OK]
-  grn_item                         old=    49 new_seed=     1 migrated=    49 expect=    49 [OK]
+  grn                              old=    50 new_seed=     1 migrated=    50 expect=    50 [OK]
+  grn_allocation                   old=    74 new_seed=     0 migrated=    74 expect=    74 [OK]
+  grn_item                         old=    50 new_seed=     1 migrated=    50 expect=    50 [OK]
   import_history_entry             old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   import_job                       old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   import_upload                    old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
-  invoice                          old=  2378 new_seed=     0 migrated=  2378 expect=  2378 [OK]
+  invoice                          old=  2389 new_seed=     0 migrated=  2389 expect=  2389 [OK]
   material                         old=    68 new_seed=     1 migrated=    68 expect=    68 [OK]
   material_category                old=    12 new_seed=     2 migrated=    12 expect=    12 [OK]
-  material_return                  old=    82 new_seed=     0 migrated=    81 expect=    81 [OK]
-  material_return_item             old=   111 new_seed=     0 migrated=   110 expect=   110 [OK]
+  material_return                  old=    83 new_seed=     0 migrated=    81 expect=    81 [OK]
+  material_return_item             old=   113 new_seed=     0 migrated=   110 expect=   110 [OK]
   migration_mapping                (new-schema only) seed=     0 ->      0 [OK by design]
   migration_row                    (new-schema only) seed=     0 ->      0 [OK by design]
   migration_run                    (new-schema only) seed=     1 ->      1 [OK by design]
-  payment                          old=   917 new_seed=     0 migrated=   904 expect=   904 [OK]
-  pending_bill                     old=  1702 new_seed=     0 migrated=  1702 expect=  1702 [OK]
+  payment                          old=   922 new_seed=     0 migrated=   908 expect=   908 [OK]
+  pending_bill                     old=  1718 new_seed=     0 migrated=  1718 expect=  1718 [OK]
   recon_basket                     old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   root_backup_email_history        old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   root_backup_settings             old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   root_recovery_code               old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
-  sale_delivery_persons            old=  3020 new_seed=     0 migrated=  3020 expect=  3020 [OK]
+  sale_delivery_persons            old=  3065 new_seed=     0 migrated=  3065 expect=  3065 [OK]
   schema_version                   old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   settings                         old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   staff_email                      old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   supplier                         old=     7 new_seed=     1 migrated=     7 expect=     7 [OK]
-  supplier_payment                 old=    79 new_seed=     0 migrated=    79 expect=    79 [OK]
+  supplier_payment                 old=    80 new_seed=     0 migrated=    80 expect=    80 [OK]
   system_lock                      old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   tenant_wipe_backup_history       old=     0 new_seed=     0 migrated=     0 expect=     0 [OK]
   user                             old=     7 new_seed=     2 migrated=     9 expect=     9 [OK]
-  user_login_session               old=    28 new_seed=     2 migrated=    28 expect=    28 [OK]
-  waive_off                        old=   425 new_seed=     0 migrated=   421 expect=   421 [OK]
+  user_login_session               old=    30 new_seed=     2 migrated=    30 expect=    30 [OK]
+  waive_off                        old=   428 new_seed=     0 migrated=   424 expect=   424 [OK]
 integrity_check : ok
 fk_violations   : 0
 duplicate scan  : none — every remaining unique index holds
@@ -181,7 +191,7 @@ value parity    : identical — 52 tables, every copied value matches the old fi
 === LOGICAL USER-FK CHECK (schema defines no FK constraints) ===
   none (all user_id references resolve to a real user)
 
-index parity    : every template index exists in the output (1 relaxed by design)
+index parity    : every template index exists in the output
 
 === NEXT STEPS ===
   1. Only this file with 'RESULT: PASS' may be imported. A run that
@@ -201,9 +211,15 @@ index parity    : every template index exists in the output (1 relaxed by design
      drop by >= 50 rows or below 80%.
   4. That first start back-fills the new v4.4 columns listed above
      (account classification, counters, Open-Khata client, indexes).
+  5. WARNING: this database has NO settings row — the old file had
+     none to carry and the template's settings table is empty, so
+     --carry-settings had nothing to copy.  Open /settings in the
+     app and save it once before day 1: company name, tax rate and
+     bill prefixes come from that row, and while it is missing
+     'allow_global_negative_stock' reads as OFF — every material
+     already in negative stock is then refused on new sales.
+     Confirm with: python3 tools/health/preflight_check.py --db <file>
 
 
 RESULT: PASS
   no data loss, no broken FKs, no duplicates left.
-  relaxed unique index(es) (all duplicate rows kept):
-    - entry.uq_entry_auto_bill_no (UNIQUE constraint failed: entry.auto_bill_no)
