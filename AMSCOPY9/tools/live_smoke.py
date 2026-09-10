@@ -46,34 +46,79 @@ GET_PAGES = [
 ]
 
 
+def is_login_redirect(rv) -> bool:
+    """True when the app bounced this request to the sign-in page.
+
+    Every page here used to be fetched with follow_redirects=True and only
+    judged on "is it a 200".  An anonymous request 302s to /login and then
+    renders 200 — so a broken login was reported as "SMOKE PASS — all pages
+    load".  Checking the redirect target is deterministic (no HTML heuristic:
+    /settings legitimately contains username and password fields of its own).
+    """
+    if rv.status_code not in (301, 302, 303, 307, 308):
+        return False
+    return "/login" in (rv.headers.get("Location") or "")
+
+
 def main():
     app = create_app()
-    c = app.test_client()
+    raw = app.test_client()
+    c = raw
     problems = []
 
-    # login
-    rv = c.post("/login", data={"username": "Admin", "password": "Admin@fbm12345",
-                                "remember_me": "1"}, follow_redirects=False)
+    # The app enforces the session-bound CSRF token on POST /login, so a bare
+    # form post is rejected with 400.  Inject the token the way a browser
+    # carries it, and take the credentials from the environment instead of
+    # guessing the default admin password.
+    with raw.session_transaction() as sess:
+        token = sess.get("_csrf_token") or "live-smoke-csrf"
+        sess["_csrf_token"] = token
+    user = os.environ.get("AMS_SMOKE_USER") or os.environ.get("DEFAULT_ADMIN_USER") or "Admin"
+    password = (os.environ.get("AMS_SMOKE_PASSWORD")
+                or os.environ.get("DEFAULT_ADMIN_PASSWORD") or "Admin@fbm12345")
+    rv = raw.post("/login", data={"username": user, "password": password,
+                                  "remember_me": "1", "_csrf_token": token},
+                  follow_redirects=False)
     if rv.status_code not in (302, 303):
-        problems.append(f"LOGIN FAILED: HTTP {rv.status_code}")
-        print("LOGIN FAILED:", rv.status_code, rv.get_data(as_text=True)[:300])
-    else:
-        print("LOGIN OK (Admin)")
+        # A failed login makes every later page result meaningless: stop here.
+        body = rv.get_data()[:400].decode("utf-8", "replace")
+        print(f"LOGIN FAILED: HTTP {rv.status_code} — {user!r} could not sign in. "
+              f"Set AMS_SMOKE_USER / AMS_SMOKE_PASSWORD. Body: {body[:180]}")
+        return 2
+    print(f"LOGIN OK ({user})")
 
+    def check(path, *, allow_redirect=False):
+        """GET *path* and judge it. Returns True when the page is broken.
+
+        Binary responses (PDF/Excel downloads) are decoded leniently — a
+        UnicodeDecodeError in the harness used to be the only thing this could
+        report on such a route, and a redirect to the sign-in form counts as a
+        failure because it means the request was never authenticated.
+        """
+        nonlocal checked
+        rv = c.get(path, follow_redirects=False)
+        checked += 1
+        if is_login_redirect(rv):
+            return "not authenticated (redirected to /login)"
+        if rv.status_code not in (200, 302):
+            return f"HTTP {rv.status_code}"
+        if rv.status_code == 200:
+            # binary routes (PDF / Excel downloads) are decoded leniently
+            html = rv.get_data().decode("utf-8", "replace")
+            if any(x in html for x in (
+                    "Traceback (most recent call last)", "BuildError",
+                    "jinja2.exceptions", "Internal Server Error")):
+                return "traceback in body"
+        return None
+
+    checked = 0
     for path in GET_PAGES:
-        rv = c.get(path, follow_redirects=True)
-        html = rv.get_data(as_text=True)
-        bad = rv.status_code not in (200, 302) or any(
-            x in html for x in (
-                "Traceback (most recent call last)", "BuildError",
-                "jinja2.exceptions", "Internal Server Error",
-            )
-        )
-        if bad:
-            problems.append(f"GET {path}: HTTP {rv.status_code}")
-            print(f"  FAIL {path} -> {rv.status_code}")
+        problem = check(path)
+        if problem:
+            problems.append(f"GET {path}: {problem}")
+            print(f"  FAIL {path} -> {problem}")
         else:
-            print(f"  ok   {path} -> {rv.status_code}")
+            print(f"  ok   {path}")
 
     # dynamic pages with live IDs
     with app.app_context():
@@ -91,12 +136,11 @@ def main():
     if sup:
         extra += [f"/supplier_ledger/{sup.id}"]
     for path in extra:
-        rv = c.get(path, follow_redirects=True)
-        html = rv.get_data(as_text=True)
-        bad = rv.status_code not in (200, 302) or "Traceback (most recent call last)" in html
-        print(f"  {'ok  ' if not bad else 'FAIL'} {path} -> {rv.status_code}")
-        if bad:
-            problems.append(f"GET {path}: HTTP {rv.status_code}")
+        problem = check(path)
+        print(f"  {'ok  ' if not problem else 'FAIL'} {path}"
+              + (f" -> {problem}" if problem else ""))
+        if problem:
+            problems.append(f"GET {path}: {problem}")
 
     # key data sanity
     with app.app_context():

@@ -157,7 +157,11 @@ def test_append_skips_existing_pks(sample_source, tmp_path):
         clients=[(1, "C-1", "Old name"), (5, "C-5", "Extra")],
         entries=[],
     )
-    report = import_snapshot(sample_source, target, mode="append", backup_target=False)
+    # require_sidecar=False: this test is about append/PK-skip semantics. The
+    # sidecar gate for plain .db sources is deliberate and covered by
+    # tests/test_full_db_sidecar.py.
+    report = import_snapshot(sample_source, target, mode="append", backup_target=False,
+                             require_sidecar=False)
     assert report["verification"] == "PASS"
     # client id 1 keeps the original row; id 2 is added; id 5 untouched
     assert _rows(target, "client") == [

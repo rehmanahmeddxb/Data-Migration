@@ -33,14 +33,25 @@ start** (which includes every deployment reload), by
 ## Current state
 
 - `0001_restore_entry_auto_bill_unique_index.sql` — restores the partial
-  UNIQUE index `uq_entry_auto_bill_no` that the old-data migration relaxed
-  because the legacy data carries two duplicate GRN bill numbers
-  (`SB-GRN-1024`, `SB-GRN-1042`; entry ids 9084/10116 and 9830/10117).
-  Until those two pairs are cleaned (business decision — keep one row per
-  bill number, delete the other), the file retries at every boot (logged,
-  boot not blocked) and the boot helper `_ensure_auto_bill_unique_indexes()`
-  skips the index with a warning. Once the duplicates are gone, the next
-  start applies the migration and records it in `migration_history`.
+  UNIQUE index `uq_entry_auto_bill_no` that the old-data migration relaxes
+  while loading, because the legacy data carries two duplicate GRN bill
+  numbers (`SB-GRN-1024`, `SB-GRN-1042`; entry ids 9084/10116 and
+  9830/10117).
+
+  **This normally applies on the first start with nothing to do**: in each
+  pair one row is a *voided* row, and the migration's void policy purges it, so
+  no duplicate survives and the index can be created. Re-verified 2026-09-10 on
+  the committed production pair — the migration tool now recreates the index
+  itself (`INDEX RESTORED` in its report), and this file is the safety net that
+  keeps `migration_history` consistent for any database that still ships with
+  the relaxation, e.g. a `--keep-voided` archive.
+
+  Only if a file *still* holds live duplicates (bit-for-bit archive, or legacy
+  data re-imported) does it fail at `CREATE UNIQUE INDEX`, log, and retry at
+  the next boot — boot is never blocked, and
+  `_ensure_auto_bill_unique_indexes()` skips the index with a warning while
+  duplicates exist. Resolving such a duplicate is a business decision (keep one
+  row per bill number via `tools/repair_controlled/` after a backup).
 
 The next schema change should ship as `0002_*.sql` here instead of a new
 helper function.

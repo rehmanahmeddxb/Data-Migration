@@ -13,7 +13,7 @@ created.
 | `migrate_tool.py` | The GUI app (double-click or `python migrate_tool.py`) |
 | `migrate_engine.py` | The migration logic (pure Python standard library — sqlite3 only) |
 | `check_template_sync.py` | Pre-flight: is the v4.4 template still in sync with the app's models? |
-| `test_migrate_engine.py` | Regression suite (18 stdlib tests, ~14 s) |
+| `test_migrate_engine.py` | Regression suite (20 stdlib tests, ~16 s) |
 | `run_tool.bat` | Windows double-click launcher |
 | `drop/` | *(auto-created)* put any database file here — the app detects it |
 | `output/` | *(auto-created)* default home for the migrated result + reports |
@@ -35,7 +35,7 @@ retired Excel pipeline (`tools/migrate/_migrate_common.py`):
 |---|---|
 | `is_void = 1` | every row in every table that carries the flag |
 | Cancelled entries | `entry.type = 'CANCEL'` or `entry.transaction_category = 'CANCEL'`, even when `is_void = 0` |
-| Cascade | children of a purged parent (sale → its items, entries, pending bills, rents, allocations; payment → its waive-offs and material returns; …), so no orphan references survive |
+| Cascade | children of a purged parent (sale → its items, entries, pending bills, rents, allocations; payment → its waive-offs and material returns; …), so no *keyed* reference survives — see the one exception below |
 | Dangling rows | rows whose parent never existed (e.g. `booking_allocation.booking_item_id`) |
 
 Every removal is counted per table and printed in a **PURGE** section of the
@@ -50,12 +50,14 @@ returns **identical results before and after** the purge.
 Run with `--keep-voided` (or untick the *Purge voided / cancelled rows* box in
 the GUI) if you ever need a bit-for-bit archive instead.
 
-The cascade set is **complete by construction** (2026-09-10): besides the
-hard-coded rules for the polymorphic `source_id` links, every *declared*
-foreign key of the v4.4 schema (e.g. `grn_allocation → direct_sale /
+The cascade set is **complete for keyed links by construction** (2026-09-10):
+besides the hard-coded rules for the polymorphic `source_id` links, every
+*declared* foreign key of the v4.4 schema (e.g. `grn_allocation → direct_sale /
 direct_sale_item / grn_item`) is derived automatically from
 `PRAGMA foreign_key_list`, so children of purged parents can never be left
-dangling even when the schema grows new child tables.
+dangling even when the schema grows new child tables. Parent links that exist
+only as **free text** (bill numbers) are the one gap — see
+"The one link the cascade cannot see" below.
 
 ## Before you migrate — the 30-second pre-flight
 
@@ -104,7 +106,16 @@ python3 "check_template_sync.py" --template <your v4.4 template>.db
    log); every other unique index is re-created and verified.
 6. **Voided and cancelled rows are purged** — the new database keeps **no**
    voided data (see "Void policy" below).
-6. **Verification is automatic**: `PRAGMA integrity_check`, per-table parity
+7. **A relaxation the purge makes unnecessary is undone**: if the rows that
+   violated a unique index turn out to be voided/cancelled rows that step 6
+   just removed, the index is re-created before the run finishes (logged as
+   `INDEX RESTORED`), so the output never ships a weakened constraint because
+   of data the policy did not want anyway. On the production file this is what
+   happens to `entry.uq_entry_auto_bill_no`: its two duplicate GRN numbers
+   each had one voided twin, so after the purge the index holds and is
+   restored — **no manual de-duplication is needed** (only a `--keep-voided`
+   archive keeps the duplicates, and then the report says so).
+8. **Verification is automatic**: `PRAGMA integrity_check`, per-table parity
    (old count → migrated count → expected count), **value parity** (every copied
    value compared with the source, so a mis-mapped column cannot pass), index
    parity, FK orphan check, logical user-id check and a full duplicate scan.
@@ -176,6 +187,62 @@ automatically; this is the fallback for the headless path.)
 
 That first start also back-fills the new v4.4 columns the migration left NULL
 (account classification, counters, Open-Khata client, performance indexes).
+
+### The one link the cascade cannot see (known, reported not fixed)
+
+Cascade rules follow **keys**: declared foreign keys plus the polymorphic
+`source_id` links. A legacy row can also point at its parent by **bill number
+text** with no key at all — the case that exists on the production file is an
+`entry` stock movement for a material return (`entry.nimbus_no = 'Material
+Return'`, `source_id IS NULL`, matched to `material_return.bill_no`). When the
+voided parent is purged, that live child row is **kept**, because deleting a
+stock movement would silently change stock totals — a far worse surprise than a
+kept row.
+
+On the committed data exactly **1** such row exists after the purge (153.6
+units, entry id 10656 / `MB NO.12200`). It is listed by the post-migration
+audit, so nothing stays invisible:
+
+```bash
+python3 AMSCOPY9/tools/post_migration_audit/audit_findings.py --db <migrated>.db   # check 24
+```
+
+Decide it as a business question (void the movement too, or keep it as history)
+before the first stock report is signed off.
+
+## Day-1 checklist — read this before the shop opens
+
+Two things the migration cannot fix, because they are not in the old file:
+
+1. **No `settings` row.** If the old database's `settings` table is empty
+   (the shipped legacy `ahmed_cement.db` is), `--carry-settings` has nothing
+   to carry and the migrated file has no company row either. Before the first
+   transaction, log in and open **/settings → Save once**: company name, tax
+   rate and bill prefixes come from that row.
+2. **Negative stock + `allow_global_negative_stock`.** While that row is
+   missing, the flag reads as OFF, and the app then **rejects new sales of
+   every material that is already in negative stock** — on the real legacy
+   data that is 55 materials, including `12MM STEEL` and `ISM 12MM STEEL`.
+   So either tick *allow negative stock* in /settings, or reconcile stock
+   (`tools/inventory/reconcile_stock.py`) — otherwise day 1 stops at the
+   counter.
+
+Confirm both with the app's read-only pre-flight, which is the check the
+business flow itself uses:
+
+```bash
+python3 tools/health/preflight_check.py --db <migrated>.db --quiet
+```
+
+Verified on the production pair 2026-09-10: the migrated file answers
+`RESULT: BLOCK  (1 blocker)`, and **saving one settings row with
+`allow_global_negative_stock = 1` is enough to answer `RESULT: OK`** — the
+blocker is that single missing row, nothing else.
+
+`RESULT: BLOCK` is not a migration failure — it is legacy data the old app
+tolerated and the new one will not. The same run lists the leftovers to
+review (duplicate manual bill numbers, invoices with no linked sale, sales
+with no stock entry).
 
 ## Safety notes
 

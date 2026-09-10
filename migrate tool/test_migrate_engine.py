@@ -247,11 +247,11 @@ class AnotherOldFileTests(unittest.TestCase):
         orig = E._swap_table
         calls = {"n": 0}
 
-        def crashy(con, t):
+        def crashy(con, t, *rest):
             calls["n"] += 1
             if calls["n"] == 8:
                 raise RuntimeError("injected mid-run failure")
-            return orig(con, t)
+            return orig(con, t, *rest)
 
         E._swap_table = crashy
         try:
@@ -309,8 +309,9 @@ class AnotherOldFileTests(unittest.TestCase):
         out_path = self.tmp / "t8_out.db"
         orig = E._swap_table
 
-        def sneaky(con, t):
-            res = orig(con, t)
+        def sneaky(con, t, *rest):
+            # *rest keeps this stub alive when _swap_table gains parameters
+            res = orig(con, t, *rest)
             if t == "client":
                 # simulate a silent mis-map / value corruption during the copy
                 con.execute("UPDATE client SET name = name || '!'")
@@ -482,6 +483,83 @@ class AnotherOldFileTests(unittest.TestCase):
         p = E.default_out_path(NEW_DEFAULT, OLD_DEFAULT)
         expected = TOOL_DIR / "output" / f"{OLD_DEFAULT.stem}_migrated.db"
         self.assertEqual(p, expected)
+
+
+    def _safe_entry_ids(self, path: Path, n: int = 2) -> list:
+        """Entry ids the purge cannot touch for its own reasons: not voided, not
+        a CANCEL row, no parent document that could cascade-delete them, and no
+        existing bill number to collide with."""
+        c = sqlite3.connect(path)
+        try:
+            return [r[0] for r in c.execute(
+                "SELECT id FROM entry WHERE COALESCE(is_void,0)=0 "
+                "AND UPPER(TRIM(COALESCE(type,''))) <> 'CANCEL' "
+                "AND source_id IS NULL AND auto_bill_no IS NULL "
+                "ORDER BY id LIMIT ?", (n,))]
+        finally:
+            c.close()
+
+    # ---- T14: a unique index relaxed only because of VOIDED duplicates is
+    #          restored once the purge has removed them (real data: the two
+    #          duplicate entry.auto_bill_no GRN numbers were void/live twins) --
+    def test_relaxed_index_is_restored_when_purge_frees_it(self):
+        old = self._fixture("t14.db")
+        c = sqlite3.connect(old)
+        ids = self._safe_entry_ids(old)
+        self.assertGreaterEqual(len(ids), 2, "fixture has no two safe entry rows")
+        c = sqlite3.connect(old)
+        # one live row + one voided twin sharing a bill number
+        c.execute("UPDATE entry SET auto_bill_no=?, is_void=0 WHERE id=?",
+                  ("T14-DUP-1", ids[0]))
+        c.execute("UPDATE entry SET auto_bill_no=?, is_void=1 WHERE id=?",
+                  ("T14-DUP-1", ids[1]))
+        c.commit()
+        c.close()
+
+        res = self._run(old, "t14_out.db")
+        out = sqlite3.connect(self.tmp / "t14_out.db")
+        idx = {r[0] for r in out.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'")}
+        rows = out.execute(
+            "SELECT COUNT(*) FROM entry WHERE auto_bill_no='T14-DUP-1'").fetchone()[0]
+        out.close()
+
+        self.assertEqual(res["status"], "PASS", res["text"])
+        self.assertEqual(rows, 1, "the live row must survive and the voided twin go")
+        self.assertIn("uq_entry_auto_bill_no", idx,
+                      "index stayed relaxed although the purge removed the duplicate")
+        self.assertEqual(res["relaxed_indexes"], [],
+                         f"report still lists relaxed indexes: {res['relaxed_indexes']}")
+        self.assertIn("INDEX RESTORED", res["text"])
+
+    # ---- T15: ... but a duplicate that is NOT voided keeps the relaxation,
+    #          is still reported, and costs no row (nothing is silently deleted)
+    def test_relaxed_index_survives_when_duplicates_are_live(self):
+        old = self._fixture("t15.db")
+        c = sqlite3.connect(old)
+        ids = self._safe_entry_ids(old)
+        self.assertGreaterEqual(len(ids), 2, "fixture has no two safe entry rows")
+        c = sqlite3.connect(old)
+        for i in ids:
+            c.execute("UPDATE entry SET auto_bill_no=?, is_void=0 WHERE id=?",
+                      ("T15-DUP-1", i))
+        c.commit()
+        c.close()
+
+        res = self._run(old, "t15_out.db")
+        out = sqlite3.connect(self.tmp / "t15_out.db")
+        idx = {r[0] for r in out.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'")}
+        rows = out.execute(
+            "SELECT COUNT(*) FROM entry WHERE auto_bill_no='T15-DUP-1'").fetchone()[0]
+        out.close()
+
+        self.assertEqual(rows, 2, "both live duplicates must be kept")
+        self.assertNotIn("uq_entry_auto_bill_no", idx,
+                         "index was created over duplicate data — it must stay relaxed")
+        self.assertTrue(any("entry.uq_entry_auto_bill_no" in r for r in res["relaxed_indexes"]),
+                        f"relaxed index not reported: {res['relaxed_indexes']}")
+        self.assertNotIn("INDEX RESTORED", res["text"])
 
 
 if __name__ == "__main__":
