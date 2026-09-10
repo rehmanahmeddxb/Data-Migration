@@ -401,6 +401,142 @@ def _set_booking_void_state(booking, is_void):
     return True
 
 
+def hard_delete_payment(payment, *, actor=None):
+    """Straight delete of a payment — reverses effects, removes the row.
+
+    Policy (owner decision): **the database holds no voided rows**.  A delete
+    must leave nothing behind, so instead of flagging the payment ``is_void``
+    (which keeps a dead row in every ledger, report and reconciliation), this
+    reverses the payment's effects with the proven helpers and then removes the
+    payment, its waive-off rows, the "payment received" pending bill it created,
+    and the ledger entries it generated.
+
+    The audit trail is *not* lost: it is written to the append-only
+    ``audit_log`` / ``accounting_audit_log`` tables, which is where an audit
+    trail belongs — not in a flagged transaction row.
+
+    Returns True when the payment was deleted.
+    """
+    if not payment:
+        return False
+    pay_id = getattr(payment, 'id', None)
+    if pay_id is None:
+        return False
+
+    # 1. snapshot for the audit trail before anything is removed
+    snapshot = {
+        'id': pay_id,
+        'client_name': getattr(payment, 'client_name', None),
+        'amount': float(getattr(payment, 'amount', 0) or 0),
+        'method': getattr(payment, 'method', None),
+        'payment_type': getattr(payment, 'payment_type', None),
+        'bill_no': (getattr(payment, 'manual_bill_no', None)
+                    or getattr(payment, 'auto_bill_no', None)),
+        'date_posted': str(getattr(payment, 'date_posted', None) or ''),
+    }
+
+    # 2. reverse every effect (accounting + generated pending bill + waive-offs)
+    #    using the proven helper; the flag it sets never reaches the database
+    #    because the row itself is deleted below.
+    _set_payment_void_state(payment, True)
+
+    # 3. remove the children that would otherwise be left behind (and flagged)
+    WaiveOff.query.filter_by(payment_id=pay_id).delete(synchronize_session=False)
+    try:
+        for pb in _payment_generated_pending_bills(payment):
+            db.session.delete(pb)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            'Could not remove the pending bill(s) of payment %s', pay_id)
+    marker = f'[SRC:Payment:{pay_id}]'
+    for tx in AccountTransaction.query.filter(
+            AccountTransaction.note.ilike(f'%{marker}%')).all():
+        db.session.delete(tx)
+
+    # 4. a material return that was created from this payment keeps its stock
+    #    record but loses the dangling link (payment_id is nullable)
+    for ret in MaterialReturn.query.filter_by(payment_id=pay_id).all():
+        ret.payment_id = None
+
+    # 5. audit trail, then remove the row itself
+    try:
+        audit_log(
+            actor if actor is not None else current_user,
+            'payment.hard_delete',
+            f"payment #{pay_id} deleted: client={snapshot['client_name']} "
+            f"amount={snapshot['amount']} method={snapshot['method']} "
+            f"type={snapshot['payment_type']} bill={snapshot['bill_no']} "
+            f"date={snapshot['date_posted']}",
+        )
+    except Exception:
+        logging.getLogger(__name__).exception(
+            'Audit entry for deleted payment %s failed', pay_id)
+    db.session.delete(payment)
+    return True
+
+
+def hard_delete_pending_bill(bill):
+    """Straight delete of a pending bill (and the follow-ups attached to it).
+
+    Policy: no void flags — a deleted bill is removed from the database.
+    """
+    if not bill:
+        return False
+    bill_id = getattr(bill, 'id', None)
+    if bill_id is None:
+        return False
+    snapshot = {
+        'id': bill_id,
+        'bill_no': getattr(bill, 'bill_no', None),
+        'client_name': getattr(bill, 'client_name', None),
+        'amount': float(getattr(bill, 'amount', 0) or 0),
+        'reason': getattr(bill, 'reason', None),
+    }
+    FollowUpContact.query.filter_by(pending_bill_id=bill_id).delete(
+        synchronize_session=False)
+    FollowUpReminder.query.filter_by(pending_bill_id=bill_id).delete(
+        synchronize_session=False)
+    try:
+        audit_log(
+            current_user,
+            'pending_bill.hard_delete',
+            f"pending bill #{bill_id} deleted: bill={snapshot['bill_no']} "
+            f"client={snapshot['client_name']} amount={snapshot['amount']} "
+            f"reason={snapshot['reason']}",
+        )
+    except Exception:
+        logging.getLogger(__name__).exception(
+            'Audit entry for deleted pending bill %s failed', bill_id)
+    db.session.delete(bill)
+    return True
+
+
+def _payment_generated_pending_bills(payment):
+    """Pending bills this payment created (reason 'payment received …')."""
+    refs = _payment_receipt_refs(payment)
+    if not refs:
+        return []
+    from sqlalchemy import func as _func, or_ as _or
+    reason_filter = _func.lower(_func.coalesce(PendingBill.reason, '')).like(
+        'payment received%')
+    bill_filter = _or_(*[PendingBill.bill_no.ilike(r) for r in refs])
+    client_obj = get_client_by_input(payment.client_name or '')
+    if client_obj:
+        client_filter = _or_(
+            PendingBill.client_code == client_obj.code,
+            _func.lower(_func.coalesce(PendingBill.client_name, ''))
+            == client_obj.name.lower(),
+            _func.coalesce(PendingBill.client_code, '') == '',
+        )
+    else:
+        client_filter = (
+            _func.lower(_func.coalesce(PendingBill.client_name, ''))
+            == (payment.client_name or '').strip().lower()
+        )
+    return PendingBill.query.filter(
+        reason_filter, bill_filter, client_filter).all()
+
+
 def hard_delete_transaction(kind, obj_id):
     """Reverse effects then permanently delete the source row (no void leftovers)."""
     kind = (kind or '').strip()
@@ -416,8 +552,10 @@ def hard_delete_transaction(kind, obj_id):
                 _reverse_account_tx_effect(tx)
             db.session.delete(tx)
         for pay in Payment.query.filter(Payment.note.ilike(f'%{marker}%')).all():
-            # Retain generated payment identity/audit history while reversing it.
-            _set_payment_void_state(pay, True)
+            # No void leftovers: the payment only exists because of this
+            # booking, so it is reversed and deleted with it (the audit trail
+            # is written to audit_log by hard_delete_payment).
+            hard_delete_payment(pay)
         BookingAllocation.query.filter(
             BookingAllocation.booking_item_id.in_(
                 db.session.query(BookingItem.id).filter(BookingItem.booking_id == booking.id)
@@ -427,16 +565,24 @@ def hard_delete_transaction(kind, obj_id):
             PendingBill.source_table == 'booking',
             PendingBill.source_id == booking.id
         ).delete(synchronize_session=False)
+        # Cancel entries only exist because of this booking — remove them
+        # instead of leaving them flagged.
+        if _booking_bill_refs(booking):
+            Entry.query.filter(
+                Entry.type == 'CANCEL',
+                Entry.bill_no.in_(_booking_bill_refs(booking))
+            ).delete(synchronize_session=False)
         db.session.delete(booking)
         deleted = True
     elif kind == 'Payment':
-        # Financial payments are never hard-deleted.  Preserve the stable source
-        # identity, linked (voided) ledger entries, waive-off rows and audit
-        # references while reversing their active effects.
+        # Policy: no voided rows.  Reverse the effects (accounting, pending
+        # bill, waive-offs), delete the generated ledger entries, then delete
+        # the payment itself.  Audit history is kept in audit_log, not in a
+        # flagged row.
         pay = db.session.get(Payment, obj_id)
         if not pay:
             return False
-        _set_payment_void_state(pay, True)
+        hard_delete_payment(pay)
         deleted = True
     elif kind == 'DirectSale':
         sale = db.session.get(DirectSale, obj_id)
@@ -478,11 +624,18 @@ def hard_delete_transaction(kind, obj_id):
         ret = db.session.get(MaterialReturn, obj_id)
         if not ret:
             return False
+        linked_payment_id = getattr(ret, 'payment_id', None)
         _set_material_return_void_state(ret, True)
         refs = _material_return_bill_refs(ret)
         if refs:
             Entry.query.filter(Entry.bill_no.in_(refs), Entry.nimbus_no == 'Material Return').delete(synchronize_session=False)
+        MaterialReturnItem.query.filter_by(material_return_id=ret.id).delete(synchronize_session=False)
         db.session.delete(ret)
+        # The receipt payment exists only because of this return: reverse and
+        # delete it instead of leaving a voided payment behind.
+        pay = db.session.get(Payment, linked_payment_id) if linked_payment_id else None
+        if pay:
+            hard_delete_payment(pay)
         deleted = True
     elif kind == 'Entry':
         entry = db.session.get(Entry, obj_id)
@@ -497,8 +650,26 @@ def hard_delete_transaction(kind, obj_id):
             return False
         if _grn_has_locked_lots(grn):
             raise ValueError('Cannot delete GRN: one or more lots are locked by cash/credit sales. Delete those sales first.')
+        auto_pay = _find_grn_auto_supplier_payment(grn)
         _set_grn_void_state(grn, True)
+        # Remove what the void step only flagged: the IN stock entries, the GRN
+        # lines (with their FIFO allocations) and the supplier payment this GRN
+        # generated.  No voided rows are left behind.
+        Entry.query.filter(
+            Entry.auto_bill_no == grn.auto_bill_no,
+            Entry.type == 'IN'
+        ).delete(synchronize_session=False)
+        grn_item_ids = [r[0] for r in db.session.query(GRNItem.id).filter(
+            GRNItem.grn_id == grn.id).all()]
+        if grn_item_ids:
+            GRNAllocation.query.filter(
+                GRNAllocation.grn_item_id.in_(grn_item_ids)
+            ).delete(synchronize_session=False)
+            GRNItem.query.filter(GRNItem.id.in_(grn_item_ids)).delete(
+                synchronize_session=False)
         db.session.delete(grn)
+        if auto_pay:
+            db.session.delete(auto_pay)
         deleted = True
     elif kind == 'AccountTransaction':
         tx = db.session.get(AccountTransaction, obj_id)
