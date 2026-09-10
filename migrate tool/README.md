@@ -47,6 +47,13 @@ On the real data that is **87 rows** out of 29,266 (61 voided, 24 cancelled,
 amounts the old reports already excluded, and the app's own consistency report
 returns **identical results before and after** the purge.
 
+*(2026-09-10, final old data — the production file at cutover: 29,669 rows in,
+**93 purged** — 62 voided + 26 cancelled + 5 cascaded — → 29,586 rows out,
+and the duplicate-bill unique index `uq_entry_auto_bill_no` no longer needs
+relaxing: its duplicates were voided rows the purge removes, so the index is
+re-created. Dated backup: `data lab for migration old to new/FIRST CLASS
+DATA/2026-09-10/`.)*
+
 Run with `--keep-voided` (or untick the *Purge voided / cancelled rows* box in
 the GUI) if you ever need a bit-for-bit archive instead.
 

@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "mode": "clean_replace",
+  "tool": "full_db_sync",
+  "imported_at": "2026-09-10T16:30:51+00:00",
+  "source_path": "data lab for migration old to new/FIRST CLASS DATA/2026-09-10/AMS_FULL_20260910_migrated.amsdb",
+  "target_path": "AMSCOPY9/instance/ahmed_cement_v44_fresh.db",
+  "sidecar": "exempt (.amsdb snapshot)",
+  "backup_path": "AMSCOPY9/instance/pre_full_db_import_ahmed_cement_v44_fresh_20260910-163051.db",
+  "verification": "PASS",
+  "rows_inserted_total": 29586,
+  "rows_deleted_total": 5,
+  "fk_violations": 0,
+  "tables_only_target": ["migration_history"],
+  "unique_indexes_relaxed": [],
+  "count_mismatches": [],
+  "notes": "Target was a freshly bootstrapped app DB (ORM schema, 5 seed rows). Every existing row was deleted first, then the full migrated data set was loaded with original primary keys, users included (9 total). Integrity + per-table parity verified inside the import transaction. Auto pre-import backup written to instance/. instance/health_snapshot.json was deleted before the first boot afterwards (documented runbook step), then the app re-baselined it on boot."
+}

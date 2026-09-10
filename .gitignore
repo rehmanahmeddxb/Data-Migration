@@ -16,6 +16,11 @@ data lab for migration old to new/backups/**/*.db
 data lab for migration old to new/AMSCOPY9_FULL_REFRESH_2026-09-09/*.db
 data lab for migration old to new/AMSCOPY9_FULL_REFRESH_2026-09-09/*.amsdb
 
+# Dated FIRST CLASS DATA backup folders (2026-09-10 …): the result db,
+# snapshot and reports are tracked as the dated backup; only the byte-exact
+# input copies under inputs/ are duplicates of the tracked pair above.
+data lab for migration old to new/FIRST CLASS DATA/20*/inputs/
+
 # --- SQLite journal sidecars (never track) -----------------------------------
 *.db-wal
 *.db-shm
