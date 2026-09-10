@@ -324,11 +324,13 @@ def _strip_secondary_unique(create_sql: str, t: str, tmp_name: str) -> str:
     return s
 
 
-def _swap_table(con: sqlite3.Connection, t: str) -> tuple:
+def _swap_table(con: sqlite3.Connection, t: str, relaxed_ddl: dict | None = None) -> tuple:
     """Replace table t (schema + all rows) with every old row, ids preserved.
 
     Returns (seed_count, loaded_count, recreated_indexes, relaxed_indexes,
-    skipped_extra_columns).
+    skipped_extra_columns).  When *relaxed_ddl* is given it is filled with
+    ``{"<table>.<index>": <the CREATE statement that failed>}`` so the caller
+    can retry the index after the purge — see the INDEX RESTORED step.
     """
     out_cols = _table_cols(con, t)
     # real old columns come from the attached 'old' schema:
@@ -406,6 +408,8 @@ def _swap_table(con: sqlite3.Connection, t: str) -> tuple:
             # and recorded); a plain index should never fail, but if it does it
             # is recorded the same way so the index-parity check reports it.
             relaxed.append(f"{name} ({str(e)[:80]})")
+            if relaxed_ddl is not None:
+                relaxed_ddl[f"{t}.{name}"] = index_sql
     return seed_before, n, recreated, relaxed, skipped
 
 
@@ -875,6 +879,7 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             rows_detail = []
             relaxed_global = []
             relaxed_names = set()
+            relaxed_ddl = {}
             skipped_cols = []
             n_tables = len([t for t in shared if _is_loaded(t)])
             done = 0
@@ -883,7 +888,7 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                     continue
                 done += 1
                 prog(15 + int(done / max(1, n_tables) * 70), f"Loading table {t} ...")
-                seed, n, rec, relaxed, skipped = _swap_table(con, t)
+                seed, n, rec, relaxed, skipped = _swap_table(con, t, relaxed_ddl)
                 rows_detail.append((t, seed, n))
                 for r in relaxed:
                     relaxed_global.append(f"{t}.{r}")
@@ -1014,6 +1019,38 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                 say("")
                 say("PURGE SKIPPED (--keep-voided): voided and cancelled rows were "
                     "carried over as-is.")
+
+            # ---- restore relaxed unique indexes the purge has freed ---------
+            # An index is relaxed for exactly one reason: the OLD data violates
+            # it.  When the violating rows turn out to be voided / cancelled
+            # rows that the purge policy has just removed, the constraint holds
+            # again — so it is put back here instead of being shipped weakened
+            # and left to the app's numbered migration to fix later.
+            relaxed_now_ok = []
+            for key in sorted(relaxed_ddl):
+                try:
+                    con.execute(relaxed_ddl[key])
+                except (sqlite3.OperationalError, sqlite3.IntegrityError):
+                    continue
+                relaxed_now_ok.append(key)
+            if relaxed_now_ok:
+                names = {k.split(".", 1)[1] for k in relaxed_now_ok}
+                relaxed_global = [g for g in relaxed_global
+                                  if g.split(" ", 1)[0].split(".", 1)[1] not in names]
+                relaxed_names -= names
+                for key in relaxed_now_ok:
+                    relaxed_ddl.pop(key, None)
+                say("")
+                say("=" * 78)
+                say("INDEX RESTORED — NO RELAXATION NEEDED AFTER ALL")
+                say("=" * 78)
+                say("  These unique indexes were relaxed while loading because the old")
+                say("  file had duplicate values in them.  The rows that duplicated were")
+                say("  voided / cancelled rows the purge removed, so the index now holds")
+                say("  and is re-created in the output — full template parity, no relaxed")
+                say("  constraints shipped, and nothing for the operator to clean up:")
+                for key in relaxed_now_ok:
+                    say(f"  [INDEX] {key} recreated (no duplicate values remain)")
 
             # ---- finalise counters + autoincrement -------------------------
             _reset_auto_increment(con)
@@ -1212,6 +1249,19 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             say("     drop by >= 50 rows or below 80%.")
             say("  4. That first start back-fills the new v4.4 columns listed above")
             say("     (account classification, counters, Open-Khata client, indexes).")
+            try:
+                _n_settings = con.execute('SELECT COUNT(*) FROM "settings"').fetchone()[0]
+            except sqlite3.Error:
+                _n_settings = 1
+            if not _n_settings:
+                say("  5. WARNING: this database has NO settings row — the old file had")
+                say("     none to carry and the template's settings table is empty, so")
+                say("     --carry-settings had nothing to copy.  Open /settings in the")
+                say("     app and save it once before day 1: company name, tax rate and")
+                say("     bill prefixes come from that row, and while it is missing")
+                say("     'allow_global_negative_stock' reads as OFF — every material")
+                say("     already in negative stock is then refused on new sales.")
+                say("     Confirm with: python3 tools/health/preflight_check.py --db <file>")
 
             say("")
             issues = []

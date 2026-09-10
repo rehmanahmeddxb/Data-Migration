@@ -14,9 +14,57 @@ trust from a report — every "verified" marker means it was executed in this se
 | Question | Answer |
 |---|---|
 | Does the migration work? | **Yes — re-proved twice today.** Live run on the committed data: `RESULT: PASS` in ~1 s, 69/69 tables, 0 lost rows, 0 FK orphans, 0 duplicate violations, value parity identical, full index parity, 87 voided/cancelled rows purged by policy. |
-| Is it safe on *another* old file? | **Yes** (any file of this schema lineage). **18 + 6 = 24 stdlib regression tests pass** (13.6 s + 0.3 s), locking in crash/silent-loss/quarantine/sidecar behaviour. Renamed/foreign schemas are reported `[LEFT BEHIND]`, not translated. |
+| Is it safe on *another* old file? | **Yes** (any file of this schema lineage). **20 + 6 = 26 regression tests pass** (16.4 s stdlib tool suite + 6 sidecar-gate tests in the app suite), locking in crash/silent-loss/quarantine/sidecar behaviour plus the two index-relaxation cases. Renamed/foreign schemas are reported `[LEFT BEHIND]`, not translated. |
 | Is the data in the app correct? | **Yes** — every old row (by id) is in the final v4.4 DB; the only value changes ever are the documented user-id remap (1,880 values in 3 audit tables). |
-| Are there flaws? | **The 6 open technical flaws and the security problem found in the audit pass are now FIXED** (§3). What remains is deliberately small: a manual git-*history* purge of the old secret key, an operator decision on 2 duplicate bill numbers (the restoration migration now exists and will apply automatically after), and a recommended re-run of the app-level QA harness for the few PRED items not re-verified. |
+| Are there flaws? | **The 6 open technical flaws and the security problem found in the audit pass are now FIXED** (§3). The "operator decision on 2 duplicate bill numbers" is **no longer open** — verified 2026-09-10: in each duplicate pair one row is voided, the purge removes it, and the tool now re-creates the unique index itself (`INDEX RESTORED`), so `0001` applies on the first start with nothing to clean. What genuinely remains is listed in §1a. |
+
+## 1a. Ship check re-run (2026-09-10, independent of every claim above)
+
+Everything below was executed from scratch on this branch. Verdict: **the
+migration and the data are ship-ready; the deployment is not, yet** — two of
+the items are one-command fixes, two are business decisions.
+
+| Item | Result |
+|---|---|
+| `check_template_sync.py` | `IN SYNC` — 69/69 tables, 0 missing columns |
+| Tool suite (`python3 -m unittest test_migrate_engine`) | **20/20 pass** (2 new: relaxed index restored / still relaxed) |
+| Live migration on the committed production pair | `RESULT: PASS`, 52 tables value-identical, 0 FK orphans, **index parity now 0 relaxed** |
+| `full_db_sync import` (the app's own importer, sidecar gate included) | `verification: PASS`, 29,179 rows in, 3,558 seeded rows out, 0 FK violations, sidecar `verified` |
+| Money/row parity old → migrated → loaded+booted | `direct_sale` 27,038,903.30 / `payment` 65,499,696.35 / `pending_bill` 17,420,902.64 — **identical at every step**; 0 lost rows, 0 changed values row-by-row |
+| Boot on the loaded DB | 12/12 NULL `account.*` classification columns back-filled, `0001` applied, no traceback |
+| Authenticated page smoke on the migrated data | **75/75 pages 200** (incl. ledgers, accounts KPIs, PDF fallback exports) |
+| `tools/consistency_report.py` | identical findings to the **old** file (4 / 87 / 100) — the migration introduced none of them |
+| App suite (`pytest`) | **green** after fixing two assertions left stale by the same session's own changes (see below) |
+
+**Fixed in this pass** (each was a real defect, not a preference):
+
+1. `tests/test_instance_bootstrap_and_crud.py` still asserted the *old* soft-void
+   behaviour of `POST /delete_pending_bill`; the route hard-deletes by policy (and
+   `_purge_voided_rows_at_boot()` would remove a voided row anyway), so the test
+   now asserts the row and its follow-ups are gone.
+2. `tests/test_full_db_snapshot.py::test_append_skips_existing_pks` failed against
+   the new sidecar gate — it tests append/PK-skip semantics, so it now passes
+   `require_sidecar=False` (the gate itself stays covered by
+   `test_full_db_sidecar.py`).
+3. `tools/live_smoke.py` **could report `SMOKE PASS — all pages load` while not
+   logged in**: `POST /login` has no CSRF token (400), its password was a hard
+   guess, and every page check accepted the login page's 200. It now injects the
+   token, takes credentials from `AMS_SMOKE_USER`/`AMS_SMOKE_PASSWORD`, aborts on
+   a failed login, and fails any request that redirects to `/login`. Verified both
+   ways: wrong password → exit 2, good password → 75/75.
+4. The report's `relaxed unique index(es) (all duplicate rows kept)` line and the
+   `0001` header/README told the operator to go delete rows by hand for
+   duplicates the purge had already removed. Both now state what the file really
+   contains, and the tool re-creates a relaxed index as soon as it holds.
+
+**Still open before go-live:**
+
+| # | Item | Who |
+|---|---|---|
+| S1 | `tools/health/preflight_check.py --db <migrated>.db` answers **`RESULT: BLOCK`**: the database has **no `settings` row** (the old file has none either, so `--carry-settings` copies nothing), which reads as `allow_global_negative_stock = OFF` while **55 materials sit in negative stock** — new sales of `12MM STEEL`, `ISM 12MM STEEL` etc. are refused. Fix = open `/settings` and save once (or reconcile stock) — **the remedy is proven**: inserting one `settings` row with `allow_global_negative_stock = 1` flipped the same file from `RESULT: BLOCK` to `RESULT: OK` (0 blockers). Not a migration bug: it is legacy data + an absent row. | business |
+| S2 | The **public** repo carries the real production databases (`ahmed_cement.db` + 4 more copies, 7.4 MB each) and 5 admin accounts' `scrypt` hashes; `git ls-files` confirms they are tracked. Password hashes and PII in a public history need history rewriting (the previously noted "purge the old secret key" task is the smaller half of this). The migration report/`data lab` folder is the source of the leak. | owner |
+| S3 | Legacy business anomalies carried over **unchanged** (verified against the old file: same counts before and after): 87 invoices with no linked sale, 4 sales with no stock entry, 1,546 manual bill numbers reused, 9 direct sales whose header ≠ items total (largest 134,181), 2 duplicated client names, and the 1 text-linked orphan stock movement. `tools/consistency_report.py` and `audit_findings.py` list them; they must be accepted or corrected, not migrated away. | business |
+| S4 | `requirements.txt` allows `pandas>=2.2` and the environment resolved **3.0.5**: the `pd.read_excel` + `to_dict` pattern used by the Excel routes was exercised under 3.0.5 and the import tests pass, so nothing is broken — pin the range (or drop pandas, which only the retired XLSX pipeline needs) if you want the deploy to be reproducible. | dev |
 
 ---
 

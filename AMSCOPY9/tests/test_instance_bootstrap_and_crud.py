@@ -342,7 +342,16 @@ def test_crud_works_in_all_major_sections(app, client):
     resp = client.post(f"/delete_pending_bill/{pbid}", follow_redirects=True)
     assert b"Bill deleted" in resp.data
     with app.app_context():
-        assert PendingBill.query.get(pbid).is_void is True
+        # Policy (v4.4, "no void flags"): deleting a pending bill removes the row
+        # for real — hard_delete_pending_bill() — and its follow-ups go with it.
+        # The old behaviour (soft void, row kept with is_void=1) is gone, and the
+        # migration purge assumes it, so a voided row must never survive here.
+        assert PendingBill.query.get(pbid) is None
+        from models.ops_meta import FollowUpContact, FollowUpReminder
+        assert db.session.query(FollowUpContact).filter_by(
+            pending_bill_id=pbid).count() == 0
+        assert db.session.query(FollowUpReminder).filter_by(
+            pending_bill_id=pbid).count() == 0
 
     # --- GRN ---
     with app.app_context():
