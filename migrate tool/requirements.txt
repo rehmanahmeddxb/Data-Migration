@@ -1,0 +1,18 @@
+# Nothing to install. The migration tool is pure Python standard library:
+# sqlite3 does all the work and tkinter is only used for the optional window.
+#
+# This file exists so that `pip install -r requirements.txt` succeeds (it is
+# deliberately empty apart from these comments) instead of failing with
+# "No such file or directory" when it is typed out of habit — and so the
+# platform-level requirements live in one place:
+#
+#   Windows / macOS   Python from python.org ships tkinter and sqlite3 — done.
+#   Linux (desktop)   sudo apt install python3-tk        (GUI only)
+#   Termux / Android  pkg install python sqlite python-tkinter
+#                     …and for the GUI only, an X server:
+#                       pkg install x11-repo && pkg install termux-x11-nightly
+#                     Headless (no X server, no extra package at all):
+#                       python3 migrate_tool.py --cli --old OLD.db --new NEW.db
+#
+# The AMS *application* (../AMSCOPY9) has its own dependency file:
+# ../AMSCOPY9/requirements.txt. This tool does not use it.

@@ -1,25 +1,45 @@
 # AMS Database Migration Tool (`migrate tool`)
 
-A small GUI program that migrates your **OLD database file** into your **NEW
+A small program that migrates your **OLD database file** into your **NEW
 v4.4 AMS database file** — emptying the new file's seeded data, loading
 **every** old row into it with original ids, and producing one clean migration
 file. Verified end-to-end with no data lost, no rows dropped, no duplicates
 created.
 
+It opens a GUI **when there is a screen to draw on**, and falls back to a
+terminal flow **when there is not** (Termux/Android, SSH, a container, CI) —
+so it never dies on a missing X display. Nothing has to be installed with pip
+either way.
+
 ## What is in this folder
 
 | File | Purpose |
 |---|---|
-| `migrate_tool.py` | The GUI app (double-click or `python migrate_tool.py`) |
+| `migrate_tool.py` | The front end — GUI when a display exists, headless when not (`python migrate_tool.py`) |
 | `migrate_engine.py` | The migration logic (pure Python standard library — sqlite3 only) |
 | `check_template_sync.py` | Pre-flight: is the v4.4 template still in sync with the app's models? |
-| `test_migrate_engine.py` | Regression suite (20 stdlib tests, ~16 s) |
-| `run_tool.bat` | Windows double-click launcher |
+| `test_migrate_engine.py` | Regression suite (20 stdlib tests, ~14 s) |
+| `test_migrate_tool_entry.py` | Regression suite for the GUI/headless switch (9 stdlib tests) |
+| `run_tool.bat` / `run_tool.sh` | Launchers for Windows and for Linux/macOS/Termux |
+| `requirements.txt` | Deliberately empty — a standing answer to "what must I pip install?" (nothing) |
 | `drop/` | *(auto-created)* put any database file here — the app detects it |
 | `output/` | *(auto-created)* default home for the migrated result + reports |
 
-No third-party packages are needed — just Python 3 (with tkinter, which ships
-with the normal python.org Windows installer).
+**No third-party packages are needed** — just Python 3. `sqlite3` (the whole
+migration) ships with Python; `tkinter` (only the optional window) ships with
+the normal python.org Windows/macOS installers and is a separate package
+elsewhere:
+
+| Where | What to install | Needed for |
+|---|---|---|
+| Windows / macOS | nothing | everything |
+| Linux desktop | `sudo apt install python3-tk` | the GUI only |
+| Termux / Android | `pkg install python sqlite` (+ `python-tkinter`, `x11-repo`, `termux-x11-nightly` for the GUI) | CLI: nothing extra |
+
+`pip install -r requirements.txt` is therefore a no-op, and that file is
+comment-only by design — it exists so the habit does not fail. (The
+**application** has its own dependencies at `../AMSCOPY9/requirements.txt`; this
+tool does not use them.)
 
 ## Void policy — the new database keeps no voided data
 
@@ -70,10 +90,66 @@ python3 "check_template_sync.py" --template <your v4.4 template>.db
 # IN SYNC → safe to migrate.  DRIFT → rebuild the template first.
 ```
 
+## Running on Android / Termux
+
+This is the setup where the tool used to stop with
+`_tkinter.TclError: no display name and no $DISPLAY environment variable` —
+Termux installs `tkinter`, but it has no screen to draw a window on. That is now
+handled: **the tool detects the missing display and continues headless**, asking
+for the two files in the terminal. Same engine, same report.
+
+```bash
+pkg install python sqlite            # no pip install needed — stdlib only
+termux-setup-storage                   # once, to let Termux read /sdcard
+cd ~/migrate-tool                      # e.g. a clone of this folder
+python3 migrate_tool.py                # headless: picks OLD/NEW from drop/ and runs
+python3 migrate_tool.py --scan         # just list the .db files it can see
+```
+
+Two Termux-specific cautions, both cheap to honour and both able to eat hours
+otherwise:
+
+1. **Do not run the migration on files inside `/storage/emulated/0`** (shared
+   storage). It is a FUSE mount with no POSIX file locking and no real
+   permissions, so SQLite fails there — usually
+   `attempt to write a readonly database` or `disk I/O error`, sometimes after
+   the copy has started. Work in Termux's own home instead and copy the result
+   out at the end:
+
+   ```bash
+   mkdir -p ~/migrate/drop && cd ~/migrate
+   cp "/storage/emulated/0/Download/ahmed_cement.db" drop/
+   cp "/storage/emulated/0/Download/ahmed_cement_v44_fresh.db" drop/
+   python3 migrate_tool.py
+   cp output/ahmed_cement_migrated.db* /storage/emulated/0/Download/
+   ```
+
+   The tool warns before the run when any of the three paths (OLD, NEW, output)
+   sits on shared storage, and turns an sqlite refusal into that same advice
+   rather than a stack trace.
+2. **A window is optional.** If you want the GUI anyway, install an X server and
+   point Tk at it:
+
+   ```bash
+   pkg install python-tkinter x11-repo && pkg install termux-x11-nightly   # + the Termux:X11 APK
+   termux-x11 :1 &
+   DISPLAY=:1 python3 migrate_tool.py --gui
+   ```
+
+   `--gui` is the *strict* switch: if a display turns out to be unavailable it
+   exits with a clear message and these instructions, instead of silently going
+   headless.
+
+The same applies to every other display-less box — an SSH session, a Docker
+container, a CI job. `--no-gui` forces the headless flow even when a screen
+exists.
+
 ## How to use (GUI)
 
-1. Open the folder and double-click `migrate_tool.py` (or `run_tool.bat`), or
-   run `python migrate_tool.py`.
+1. Open the folder and double-click `migrate_tool.py` (or `run_tool.bat` on
+   Windows, `./run_tool.sh` elsewhere), or run `python migrate_tool.py`. With
+   no display available the same command takes you to the terminal flow
+   described under "Headless / command-line" instead of failing.
 2. Choose the two files — easiest way: **copy your DB files into this folder
    (or the `drop` subfolder)**. Within 1–2 seconds the app detects them and
    lists them under *Detected files*. Then press **Use as OLD** / **Use as
@@ -142,6 +218,24 @@ python migrate_tool.py --cli --old OLD.db --new NEW_v44.db [--out result.db] \
     [--keep-voided] [--carry-settings] [--allow-v44-old] [--no-overwrite]
 python migrate_tool.py --scan        # list files detected in this folder/drop
 ```
+
+| Switch | Meaning |
+|---|---|
+| *(none)* | GUI if a display exists; headless automatically if not |
+| `--cli`, `--no-gui` | never open a window; **asks** for the two files if `--old`/`--new` are missing |
+| `--gui` | insist on the window; exit with instructions if there is no display |
+| `--scan` | list the detected `.db` files with their row counts and schema verdict |
+
+**Both files missing is not an error any more.** On a terminal the tool lists
+what it found in this folder and `drop/`, marks which one it thinks is the
+legacy file and which is the v4.4 template (by the same schema markers the GUI
+uses), and asks you to pick — a number, `s` for the suggestion, or a path. It
+then prints the equivalent `--cli` line, so the next run needs no questions.
+With no terminal attached (cron, CI, `python migrate_tool.py < /dev/null`) it
+prints that same command line and exits `2` instead of blocking on a prompt.
+
+Output defaults to `output/<oldname>_migrated.db` exactly as in the GUI, so the
+`.report.txt` sidecar the app's importer requires is written in the same place.
 
 `--carry-settings` loads the OLD file's `settings` row (company name / tax /
 bill prefixes) when the NEW template's settings table is empty — use it for a
