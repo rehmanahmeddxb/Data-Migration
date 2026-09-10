@@ -1,5 +1,15 @@
 # AMS Legacy Migration Audit & Implementation Analysis
 
+> **STATUS (2026-09-10): PROPOSAL, NOT RECORD.** The "opening-state"
+> implementation planned in §H/§N (`06_opening_state_migration.py`,
+> `_opening_state_common.py`, the `05` deprecation stub, the `04` rewrite) was
+> **never built** — 0 of the 5 file actions in §N were done. The migration that
+> actually shipped is the full-history SQLite path: `migrate tool/` (repo
+> root) + `full_db_sync/` (`docs/FULL_DB_SQLITE_SYNC.md`). Read this document
+> as the 2026-08-18 analysis of the legacy state (largely still accurate as a
+> description of the old data) and as a *possible future* clean-state option —
+> not as something already implemented.
+
 **Audit date:** 2026-08-18
 **Working directory:** `/home/user/ams99`
 **Database:** `instance/ahmed_cement.db` (SQLite, 6.4 MB, single-tenant)

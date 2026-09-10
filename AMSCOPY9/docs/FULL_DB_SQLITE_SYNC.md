@@ -122,7 +122,7 @@ python -m full_db_sync import \
     --confirm
 
 # (options: --mode append | clean_replace, --keep-users,
-#  --no-backup, --backup-dir DIR, --json report.json, --verbose)
+#  --no-backup, --backup-dir DIR, --allow-no-sidecar, --json report.json, --verbose)
 
 # Clean-only (wipe all rows, keep schema):
 python -m full_db_sync clean --db instance/ahmed_cement_v44_fresh.db --confirm
@@ -136,6 +136,16 @@ An import does **not** require the file to have been exported by this tool:
 any AMS v4.4 SQLite database (e.g. the earlier
 `FIRST CLASS DATA/ahmed_cement_migrated.db`) can be used as the source —
 that is exactly how today's refresh was run.
+
+**Sidecar rule (2026-09-10):** for a **plain `.db`** source, the importer
+now requires the `.report.txt` sidecar with `RESULT: PASS` next to the file
+(the AMS migration tool writes exactly that sidecar, and renames aborted
+runs to `*.INCOMPLETE`).  This makes the quarantine airtight: a crashed
+migration output can no longer be imported by explicit path.  `.amsdb`
+snapshots are self-verifying and exempt.  `--allow-no-sidecar` bypasses the
+gate for automation that verifies on its own; the app's upload UI passes
+`require_sidecar=False` because a browser upload is a single file by nature
+(admin-only, with its own backup + verify + tamper detection).
 
 ---
 

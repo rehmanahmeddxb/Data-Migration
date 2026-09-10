@@ -1,0 +1,35 @@
+# --- Secrets: never tracked (2026-09-10 security close-out) -----------------
+# The old committed keys were rotated; the files stay on disk locally but must
+# never re-enter git. Purging the OLD key from git *history* requires a
+# one-time `git filter-repo` on main (manual step — see FINAL_MIGRATION_REPORT.md).
+*secret_key*
+.env
+
+# --- Large production data: kept locally (regression-suite fixtures live on
+#     disk), duplicate copies are not tracked -------------------------------
+# Tracked data pair (fixtures for migrate tool/test_migrate_engine.py):
+#   data lab for migration old to new/ahmed_cement.db          (OLD source)
+#   data lab for migration old to new/NewData/ahmed_cement_v44_fresh.db (template)
+#   data lab for migration old to new/FIRST CLASS DATA/ahmed_cement_migrated.db
+# Everything below is a duplicate of that data (backup / refresh copies):
+data lab for migration old to new/backups/**/*.db
+data lab for migration old to new/AMSCOPY9_FULL_REFRESH_2026-09-09/*.db
+data lab for migration old to new/AMSCOPY9_FULL_REFRESH_2026-09-09/*.amsdb
+
+# --- SQLite journal sidecars (never track) -----------------------------------
+*.db-wal
+*.db-shm
+*.db-journal
+*.INCOMPLETE
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Migration tool runtime folders ------------------------------------------
+migrate tool/output/*
+migrate tool/drop/*
+!migrate tool/output/.gitkeep
+!migrate tool/drop/.gitkeep

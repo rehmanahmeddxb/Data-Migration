@@ -4,6 +4,18 @@
 **Auditor:** Agent Mode (Automated + Manual Code Review)  
 **Scope:** Frontend · Backend · Database · APIs · Business Logic · Data Integrity · Security
 
+> **STATUS (2026-09-10): HISTORICAL SNAPSHOT — superseded in large part.**
+> This audit describes the state of 2026-08-25, when the instance database had
+> just been wiped. Since then: the database was rebuilt and loaded with the
+> full migrated production data (see `docs/DATA_LOAD_VERIFICATION_REPORT.md`);
+> the hardcoded `WEBHOOK_TOKEN` / `GITHUB_REPO` in `main.py` were removed
+> (token is env-var-only, see `DEPLOYMENT.md`); CSRF was extended from
+> `accounts.*` to **every** mutating endpoint; bill-number allocation became
+> write-lock atomic; future-dated payments are rejected; the full-wipe delete
+> order was fixed. Treat the P0 list below as the record of what was broken at
+> the time, not as the current state. The `QA_FULL_AUDIT.md` companion has a
+> similar status note with per-finding fix evidence.
+
 ---
 
 ## ⚠️ EXECUTIVE SUMMARY

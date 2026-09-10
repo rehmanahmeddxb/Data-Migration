@@ -32,6 +32,15 @@ start** (which includes every deployment reload), by
 
 ## Current state
 
-No numbered migration files exist yet: the current v4.4 schema was built by
-the ORM bootstrap and the `_ensure_*` helpers. The first future schema change
-should ship as `0001_*.sql` here instead of a new helper function.
+- `0001_restore_entry_auto_bill_unique_index.sql` — restores the partial
+  UNIQUE index `uq_entry_auto_bill_no` that the old-data migration relaxed
+  because the legacy data carries two duplicate GRN bill numbers
+  (`SB-GRN-1024`, `SB-GRN-1042`; entry ids 9084/10116 and 9830/10117).
+  Until those two pairs are cleaned (business decision — keep one row per
+  bill number, delete the other), the file retries at every boot (logged,
+  boot not blocked) and the boot helper `_ensure_auto_bill_unique_indexes()`
+  skips the index with a warning. Once the duplicates are gone, the next
+  start applies the migration and records it in `migration_history`.
+
+The next schema change should ship as `0002_*.sql` here instead of a new
+helper function.

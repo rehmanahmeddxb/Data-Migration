@@ -1,0 +1,103 @@
+{
+  "status": "PASS",
+  "ok": true,
+  "run_at": "2026-09-10 09:40:19",
+  "old_path": "/home/user/Data-Migration/data lab for migration old to new/ahmed_cement.db",
+  "new_path": "/home/user/Data-Migration/data lab for migration old to new/NewData/ahmed_cement_v44_fresh.db",
+  "out_path": "/home/user/Data-Migration/data lab for migration old to new/FIRST CLASS DATA/ahmed_cement_migrated.db",
+  "report_path": "/home/user/Data-Migration/data lab for migration old to new/FIRST CLASS DATA/ahmed_cement_migrated.db.report.txt",
+  "old_rows": 29256,
+  "old_tables": 64,
+  "new_schema_tables": 69,
+  "users_added": 7,
+  "tables_loaded": 52,
+  "purge": {
+    "enabled": true,
+    "tables": {
+      "account_transaction": {
+        "total": 1059,
+        "kept": 1046,
+        "removed_void": 13,
+        "removed_cancel": 0,
+        "removed_cascade": 0,
+        "removed_missing_parent": 0
+      },
+      "entry": {
+        "total": 5259,
+        "kept": 5204,
+        "removed_void": 31,
+        "removed_cancel": 24,
+        "removed_cascade": 0,
+        "removed_missing_parent": 0
+      },
+      "material_return": {
+        "total": 82,
+        "kept": 81,
+        "removed_void": 0,
+        "removed_cancel": 0,
+        "removed_cascade": 1,
+        "removed_missing_parent": 0
+      },
+      "material_return_item": {
+        "total": 111,
+        "kept": 110,
+        "removed_void": 0,
+        "removed_cancel": 0,
+        "removed_cascade": 1,
+        "removed_missing_parent": 0
+      },
+      "payment": {
+        "total": 917,
+        "kept": 904,
+        "removed_void": 13,
+        "removed_cancel": 0,
+        "removed_cascade": 0,
+        "removed_missing_parent": 0
+      },
+      "waive_off": {
+        "total": 425,
+        "kept": 421,
+        "removed_void": 4,
+        "removed_cancel": 0,
+        "removed_cascade": 0,
+        "removed_missing_parent": 0
+      }
+    },
+    "rows_removed": 87
+  },
+  "carry_settings": {
+    "requested": false,
+    "applied": false
+  },
+  "relaxed_indexes": [
+    "entry.uq_entry_auto_bill_no (UNIQUE constraint failed: entry.auto_bill_no)"
+  ],
+  "warnings": [],
+  "issues": [],
+  "value_parity": {
+    "tables_checked": 52,
+    "mismatches": []
+  },
+  "new_columns_filled_null": [
+    "account.class_category",
+    "account.class_subcategory",
+    "account.class_account_type",
+    "account.channel",
+    "account.cash_location",
+    "account.cash_responsible",
+    "account.wallet_provider",
+    "account.wallet_number",
+    "account.wallet_holder",
+    "account.linked_entity_type",
+    "account.linked_client_id",
+    "account.linked_supplier_id",
+    "account.linked_party_name",
+    "account.account_status",
+    "account_transaction.reason",
+    "account_transaction.idempotency_key",
+    "direct_sale.idempotency_payload_hash",
+    "payment.idempotency_payload_hash",
+    "supplier_payment.idempotency_payload_hash"
+  ],
+  "elapsed_seconds": 0.92
+}

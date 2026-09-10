@@ -31,20 +31,29 @@ REQUIRED_PREFIXES = ("VOID LEAK", "CANCEL LEAK", "FK ORPHAN", "LEDGER",
                      "SEQ CHECK", "DUP KEY")
 INFO_PREFIXES = ("CLIENT LEDGER", "INACTIVE MASTER", "TOTAL")
 
+# Refreshed 2026-09-10 from the committed clean export
+# instance/migration/ALLEXPORT-CLEAN-17-08-2026.xlsx (36,272 source rows
+# -> 24,585 kept; sums exclude is_void rows, same semantics as query 10 in
+# post_import_audit.py).  The 2026-08-17 values below were stale: 11 of 13
+# did not match the committed workbook (see the doc-vs-artifact table in
+# the root MIGRATION_TOOL_PROCEDURE_AUDIT.md §6).  These baselines describe
+# the EXCEL pipeline dataset (24,585 rows); a database built from the
+# SQLite `ahmed_cement.db` lineage (29,263 rows) is a different export and
+# will not match them by design.
 EXPECTED_TOTALS = {
-    "direct_sale.amount": "23719927.40",
+    "direct_sale.amount": "24021212.70",
     "direct_sale.paid_amount": "7291719.50",
-    "payment.amount": "53923466.95",
-    "pending_bill.amount": "16519225.37",
-    "invoice.total_amount": "19467450.87",
-    "invoice.balance": "18822430.57",
-    "account_transaction.amount": "288365494.23",
-    "booking.amount": "133672972.73",
-    "booking.paid_amount": "88044330.99",
-    "waive_off.amount": "350430.49",
-    "material_return.amount": "1225363.30",
+    "payment.amount": "56727355.65",
+    "pending_bill.amount": "17197290.57",
+    "invoice.total_amount": "19768306.17",
+    "invoice.balance": "19123285.87",
+    "account_transaction.amount": "291136436.83",
+    "booking.amount": "137265708.43",
+    "booking.paid_amount": "88604330.99",
+    "waive_off.amount": "350431.09",
+    "material_return.amount": "1261293.80",
     "supplier_payment.amount": "28392809.99",
-    "delivery_rent.amount": "1263529.00",
+    "delivery_rent.amount": "1269324.00",
 }
 
 

@@ -167,6 +167,12 @@ def full_db_import():
     report_name = None
     report_meta = {}
     try:
+        # require_sidecar=False: a browser upload is a single file by nature,
+        # so it cannot carry the .report.txt sidecar.  The UI path keeps its
+        # own protections (admin-only, engine integrity/FK/parity verification,
+        # automatic backup, tamper detection) — the sidecar gate guards the
+        # CLI/explicit-path flow where a quarantined *.INCOMPLETE file could
+        # otherwise be named directly.
         report = import_snapshot(
             upload_path,
             db_path,
@@ -174,6 +180,7 @@ def full_db_import():
             backup_target=True,
             backup_dir=_snapshot_dir(),
             include_users=True,
+            require_sidecar=False,
         )
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         report_name = f"full_db_import_report_{stamp}.json"
