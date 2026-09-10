@@ -1,5 +1,7 @@
 # AMS Data-Migration Tool — Complete Procedure Inventory + Working / Non-Working Audit
 
+> **Addendum (2026-09-10, later session):** the predicted D-1…D-5 failure modes were reproduced live against a *different* old file (crash on extra table, silent KEEP_FROM_NEW discard, no-rollback partial output, 209-index loss, output-path loop), the fixes below were **implemented** in `migrate tool/`, and the whole chain — different old file → v4.4 → app pages — was re-verified end-to-end. Results, diffs and 9 new regression tests: **`ANOTHER_OLD_FILE_VERIFICATION.md`**.
+
 **Audit date:** 2026-09-10
 **Audited by:** Arena agent session, branch `arena/01a08975-data-migration`
 **Scope read in full:** `migrate tool/` (7 files) · `data lab for migration old to new/` (23 files) · `AMSCOPY9/` (527 files — all migration-, import-, audit- and schema-related code plus every audit document)

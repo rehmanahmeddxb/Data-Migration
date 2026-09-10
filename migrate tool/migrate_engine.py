@@ -135,7 +135,6 @@ def inspect_database(path) -> dict:
         con.execute("SELECT 1 FROM sqlite_master").fetchone()
     except sqlite3.DatabaseError:
         return out
-    con = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
     try:
         tables = _user_tables(con)
         out["tables"] = tables
@@ -198,7 +197,13 @@ def classify(old_path, new_path) -> dict:
 
 
 def default_out_path(new_path: Path, old_path: Path) -> Path:
-    """Default output: <folder-of-new>/<old-stem>_migrated.db"""
+    """Default output: <this-tool>/output/<old-stem>_migrated.db when the
+    tool's own output/ folder exists (keeps results out of the watched input
+    folder so a finished report is never re-detected as an input candidate);
+    otherwise next to the NEW file as before."""
+    tool_output = Path(__file__).resolve().parent / "output"
+    if tool_output.is_dir():
+        return tool_output / f"{Path(old_path).stem}_migrated.db"
     out_dir = new_path.parent if new_path.parent.exists() else Path.cwd()
     return out_dir / f"{old_path.stem}_migrated.db"
 
@@ -221,15 +226,29 @@ def _consistent_copy(src: Path, dst: Path) -> None:
 def _strip_secondary_unique(create_sql: str, t: str, tmp_name: str) -> str:
     """CREATE TABLE for tmp_name identical to t but without secondary UNIQUE
     constraints (PK kept). Inline-UNIQUE auto-indexes cannot be dropped later,
-    so they are stripped at DDL time; normal UNIQUE indexes are recreated after
-    the swap and only relaxed when the old data genuinely violates them."""
-    s = create_sql
+    so they are stripped at DDL time and re-created as explicit unique indexes
+    after the swap (relaxed only if the old data genuinely violates them);
+    normal UNIQUE indexes are recreated after the swap as well.
+
+    Single-quoted string literals are masked before the regex passes so a
+    column default such as DEFAULT 'UNIQUE SIZE' can never be corrupted
+    (audit defect D-6)."""
+    literals: dict = {}
+
+    def _stash(m: "re.Match") -> str:
+        key = f"\x00lit{len(literals)}\x00"
+        literals[key] = m.group(0)
+        return f"'{key}'"
+
+    s = re.sub(r"'(?:[^']|'')*'", _stash, create_sql)
     s = re.sub(r",\s*CONSTRAINT\s+\w+\s+UNIQUE\s*\([^)]*\)", " ", s, flags=re.I)
     s = re.sub(r"\bUNIQUE\s*\([^)]*\)", " ", s, flags=re.I)
     s = re.sub(r"\bUNIQUE\b", " ", s, flags=re.I)
     s = re.sub(r"\s*,\s*,+", ",", s)
     s = re.sub(r",\s*\)", ")", s)
     s = re.sub(r"\s+", " ", s)
+    for key, lit in literals.items():
+        s = s.replace(f"'{key}'", lit)
     if f'CREATE TABLE "{t}" (' in s:
         s = s.replace(f'CREATE TABLE "{t}" (', f'CREATE TABLE "{tmp_name}" (', 1)
     else:
@@ -266,18 +285,28 @@ def _swap_table(con: sqlite3.Connection, t: str) -> tuple:
     orig_sql = con.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (t,)
     ).fetchone()[0]
-    # Capture the table's unique indexes BEFORE the swap: dropping the table
-    # drops its indexes too, so they are re-created afterwards from this list.
-    saved_unique = []
+    # Capture EVERY index of the table BEFORE the swap: dropping the table
+    # drops its indexes too (audit defect D-4 lost 209 of 261). origin 'c' =
+    # explicit CREATE INDEX (unique or not) — re-created from its saved SQL.
+    # origin 'u' = inline UNIQUE table constraint (auto-index, no SQL) — the
+    # constraint is stripped from the tmp DDL above, so it is re-created as an
+    # explicit unique index on the same columns. origin 'pk' is the rowid PK.
+    saved_indexes = []
     for row in con.execute(f'PRAGMA index_list({_q(t)})').fetchall():
         name, uniq, origin = row[1], row[2], row[3]
-        if not uniq or origin == "pk":
+        if origin == "pk":
+            continue
+        if origin == "u":
+            cols = [r[2] for r in con.execute(f'PRAGMA index_info({_q(name)})').fetchall()
+                    if r[2] is not None]
+            saved_indexes.append((name, None, origin, uniq, cols))
             continue
         sql_row = con.execute(
             "SELECT sql FROM sqlite_master WHERE type='index' AND name=?",
             (name,),
         ).fetchone()
-        saved_unique.append((name, sql_row[0] if sql_row else None, origin))
+        if sql_row and sql_row[0]:
+            saved_indexes.append((name, sql_row[0], origin, uniq, None))
     tmp = "tmp_" + t
     con.execute(f'DROP TABLE IF EXISTS {_q(tmp)}')
     con.execute(_strip_secondary_unique(orig_sql, t, tmp))
@@ -291,13 +320,29 @@ def _swap_table(con: sqlite3.Connection, t: str) -> tuple:
     con.execute(f'ALTER TABLE {_q(tmp)} RENAME TO {_q(t)}')
 
     recreated, relaxed = [], []
-    for name, index_sql, origin in saved_unique:
+    for name, index_sql, origin, uniq, cols in saved_indexes:
+        if origin == "u":
+            # inline UNIQUE constraint of the NEW template — restore as an
+            # explicit unique index on the same columns. SQLite reserves the
+            # "sqlite_autoindex_" name prefix, so generated auto-index names
+            # are mapped to a legal "uq_..." name (same guarantee, own name).
+            if not cols:
+                continue
+            name_final = name
+            if name.startswith("sqlite_autoindex_"):
+                name_final = "uq_" + name[len("sqlite_autoindex_"):]
+            col_csv = ", ".join(_q(c) for c in cols)
+            index_sql = f'CREATE UNIQUE INDEX {_q(name_final)} ON {_q(t)} ({col_csv})'
+            name = name_final
         if not index_sql:
-            continue  # autoindex of an inline unique — stripped from DDL
+            continue
         try:
             con.execute(index_sql)
             recreated.append(name)
         except (sqlite3.OperationalError, sqlite3.IntegrityError) as e:
+            # unique indexes may be genuinely violated by the old data (relaxed
+            # and recorded); a plain index should never fail, but if it does it
+            # is recorded the same way so the index-parity check reports it.
             relaxed.append(f"{name} ({str(e)[:80]})")
     return seed_before, n, recreated, relaxed, skipped
 
@@ -480,6 +525,7 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             # ---- business tables: replace with every old row ---------------
             rows_detail = []
             relaxed_global = []
+            relaxed_names = set()
             skipped_cols = []
             n_tables = len([t for t in shared if t not in KEEP_FROM_NEW and t != "user"])
             done = 0
@@ -492,11 +538,12 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                 rows_detail.append((t, seed, n))
                 for r in relaxed:
                     relaxed_global.append(f"{t}.{r}")
+                    relaxed_names.add(r.split(" ", 1)[0])
                 for col, cnt in skipped:
                     skipped_cols.append(f"{t}.{col} ({cnt} non-null)")
                 extra = ""
                 if rec:
-                    extra += f"  uniq_recreated={len(rec)}"
+                    extra += f"  indexes_recreated={len(rec)}"
                 if relaxed:
                     extra += f"  RELAXED={relaxed}"
                 say(f"[LOAD] {t:32} seed_cleared={seed:6} -> old_rows={n:6}{extra}")
@@ -597,6 +644,8 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             old_set = set(old_tables)
             out_set = set(out_tables)
             mismatches = []
+            left_behind = []
+            dropped_keep = []
             for t in sorted(old_set | out_set):
                 outn = 0
                 if t in out_set:
@@ -606,17 +655,28 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                     say(f"  {t:32} (new-schema only) seed={n:6} -> {outn:6} [OK by design]")
                     continue
                 o = old_ro.execute(f'SELECT COUNT(*) FROM {_q(t)}').fetchone()[0]
+                if t not in out_set:
+                    # old-only table (audit D-1): report it, never crash on it.
+                    say(f"  {t:32} old={o:6} new_seed=   n/a migrated=     0 expect=     0 [LEFT BEHIND]")
+                    if o:
+                        left_behind.append(f"{t} ({o} rows)")
+                    continue
                 n = new_ro.execute(f'SELECT COUNT(*) FROM {_q(t)}').fetchone()[0]
                 if t == "user":
                     expect = o + n
                 elif t in KEEP_FROM_NEW:
                     expect = n
+                    if o:
+                        # audit D-2: KEEP_FROM_NEW discards old rows — surface it
+                        dropped_keep.append(f"{t} ({o} row(s))")
                 else:
                     expect = o
                 st = "OK" if outn == expect else "MISMATCH"
                 if outn != expect:
                     mismatches.append(t)
                 say(f"  {t:32} old={o:6} new_seed={n:6} migrated={outn:6} expect={expect:6} [{st}]")
+            tmpl_idx = {r[0] for r in new_ro.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL")}
             old_ro.close()
             new_ro.close()
 
@@ -665,17 +725,21 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             if not orphan_user:
                 say("  none (all user_id references resolve to a real user)")
 
-            # old-only tables left behind? old-only columns with data?
-            left_behind = []
-            old_ro2 = _open_ro(staging)
-            for t in old_tables:
-                if t not in out_tables:
-                    cnt = old_ro2.execute(
-                        f'SELECT COUNT(*) FROM {_q(t)}'
-                    ).fetchone()[0]
-                    if cnt:
-                        left_behind.append(f"{t} ({cnt} rows)")
-            old_ro2.close()
+            # old-only tables with data were collected during the parity loop
+            # (audit D-1 fix) — nothing to recompute here.
+
+            # index parity (audit D-4 fix): every explicit index of the v4.4
+            # template must exist in the output, except indexes explicitly
+            # relaxed because the old data violates them.
+            out_idx = {r[0] for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL")}
+            lost_indexes = sorted(tmpl_idx - out_idx - relaxed_names)
+            say("")
+            if lost_indexes:
+                say(f"index parity    : MISSING {len(lost_indexes)} -> {lost_indexes[:8]}")
+            else:
+                say("index parity    : every template index exists in the output"
+                    + (f" ({len(relaxed_names)} relaxed by design)" if relaxed_names else ""))
 
             say("")
             issues = []
@@ -695,6 +759,17 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                 issues.append(
                     "old columns not in new schema carried non-null data: "
                     + ", ".join(skipped_cols[:6])
+                )
+            if dropped_keep:
+                issues.append(
+                    "rows in KEEP_FROM_NEW tables were NOT carried into the "
+                    "output (fresh-template values kept) — merge explicitly "
+                    "if they matter: " + ", ".join(dropped_keep[:6])
+                )
+            if lost_indexes:
+                issues.append(
+                    f"{len(lost_indexes)} template index(es) missing from the "
+                    "output: " + ", ".join(lost_indexes[:6])
                 )
             if left_behind:
                 issues.append(
@@ -760,6 +835,28 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                 con.close()
             except Exception:
                 pass
+    except BaseException as exc:
+        # Failure hygiene (audit D-3): never leave a silent half-loaded output.
+        # Write the report even on failure and quarantine any partial output so
+        # it cannot be mistaken for a finished migration (or imported downstream).
+        say("")
+        say(f"RESULT: FAILED — run aborted: {exc}")
+        say("  the output file is INCOMPLETE and must not be imported.")
+        quarantine = None
+        try:
+            if out.exists():
+                quarantine = out.with_suffix(out.suffix + ".INCOMPLETE")
+                os.replace(out, quarantine)
+                say(f"  partial output quarantined as: {quarantine.name}")
+        except OSError:
+            quarantine = None
+        try:
+            report_target = (quarantine or out)
+            report_target.with_suffix(report_target.suffix + ".report.txt").write_text(
+                "\n".join(report_lines), encoding="utf-8")
+        except OSError:
+            pass
+        raise
     finally:
         try:
             Path(staging).unlink(missing_ok=True)
