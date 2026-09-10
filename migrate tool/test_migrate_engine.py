@@ -13,6 +13,18 @@ defects D-1, D-2, D-3, D-4, D-5 in MIGRATION_TOOL_PROCEDURE_AUDIT.md:
       full index parity with the v4.4 template
   T5  mid-run crash -> *.report.txt written with RESULT: FAILED and the
       partial output quarantined as *.INCOMPLETE (never importable)
+  T6  an OLD file that already carries v4.4 markers (an output of a previous
+      run) is refused — re-migrating re-maps user ids and corrupts audit
+      attribution (G1); --allow-v44-old still permits it
+  T7  a NOT NULL column the old file cannot fill is detected BEFORE the load
+      and named in the error; nothing is left as a usable output (G3)
+  T8  value parity catches a value that changed during the copy, so a
+      mis-mapped column can no longer print RESULT: PASS (G4)
+  T9  the purge policy: no voided or cancelled row survives, value parity
+      still holds, and the removal is counted in the report
+  T10 purging a voided sale also purges its children (cascade), leaving no
+      dangling references
+  T11 --keep-voided (purge_voided=False) preserves the archive instead
   R1  refusal guards still refuse (swapped roles, non-AMS file)
 
 Pure stdlib. Each test builds its fixture from the committed data-lab pair
@@ -248,6 +260,140 @@ class AnotherOldFileTests(unittest.TestCase):
         report = q.with_suffix(q.suffix + ".report.txt")
         self.assertTrue(report.exists(), "failure report must be written")
         self.assertIn("RESULT: FAILED", report.read_text(encoding="utf-8"))
+
+    # ---- T6: an already-migrated (v4.4) OLD file is refused (G1) -----------
+    def test_already_migrated_old_file_is_refused(self):
+        first = self._run(self._fixture("t6_src.db"), "t6_first.db")
+        self.assertEqual(first["status"], "PASS", first["text"])
+        migrated = self.tmp / "t6_first.db"
+        with self.assertRaises(E.MigrationError) as ctx:
+            E.run_migration(migrated, NEW_DEFAULT, out_path=self.tmp / "t6_second.db")
+        msg = str(ctx.exception)
+        self.assertIn("already carries v4.4", msg)
+        self.assertIn("corrupts audit-log attribution", msg)
+        # no half-done second output
+        self.assertFalse((self.tmp / "t6_second.db").exists())
+
+    def test_allow_v44_old_flag_overrides_the_guard(self):
+        first = self._run(self._fixture("t6b_src.db"), "t6b_first.db")
+        self.assertEqual(first["status"], "PASS", first["text"])
+        res = E.run_migration(self.tmp / "t6b_first.db", NEW_DEFAULT,
+                              out_path=self.tmp / "t6b_second.db",
+                              allow_v44_old=True)
+        self.assertIn(res["status"], ("PASS", "REVIEW"))
+
+    # ---- T7: NOT NULL column the old file cannot fill (G3) -----------------
+    def test_missing_not_null_column_is_reported_before_loading(self):
+        old = self._fixture("t7.db")
+        c = sqlite3.connect(old)
+        c.execute('ALTER TABLE client DROP COLUMN code')   # NOT NULL in v4.4
+        c.commit()
+        c.close()
+        with self.assertRaises(E.MigrationError) as ctx:
+            self._run(old, "t7_out.db")
+        msg = str(ctx.exception)
+        self.assertIn("client.code", msg)
+        self.assertIn("NOT NULL", msg)
+        self.assertIn("nothing was written", msg)
+        # the run never started, so no usable output is lying around
+        self.assertFalse((self.tmp / "t7_out.db").exists())
+
+    # ---- T8: value parity catches a value changed during the copy (G4) -----
+    def test_value_parity_detects_a_changed_value(self):
+        old = self._fixture("t8.db")
+        out_path = self.tmp / "t8_out.db"
+        orig = E._swap_table
+
+        def sneaky(con, t):
+            res = orig(con, t)
+            if t == "client":
+                # simulate a silent mis-map / value corruption during the copy
+                con.execute("UPDATE client SET name = name || '!'")
+            return res
+
+        E._swap_table = sneaky
+        try:
+            res = E.run_migration(old, NEW_DEFAULT, out_path=out_path)
+        finally:
+            E._swap_table = orig
+        self.assertEqual(res["status"], "REVIEW", res["text"])
+        self.assertTrue(any("value mismatch" in i for i in res["issues"]),
+                        res["issues"])
+
+    # ---- T9: the purge policy — no voided data in the new database ---------
+    def test_purge_removes_every_voided_and_cancelled_row(self):
+        old = self._fixture("t9.db")
+        res = self._run(old, "t9_out.db")
+        out = sqlite3.connect(self.tmp / "t9_out.db")
+        tables = [r[0] for r in out.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%'")]
+        left_void = []
+        for t in tables:
+            cols = [r[1] for r in out.execute(f'PRAGMA table_info("{t}")')]
+            if "is_void" not in cols:
+                continue
+            n = out.execute(
+                f'SELECT COUNT(*) FROM "{t}" '
+                'WHERE COALESCE(CAST(is_void AS INTEGER),0) = 1').fetchone()[0]
+            if n:
+                left_void.append((t, n))
+        self.assertEqual(left_void, [], f"voided rows survived: {left_void}")
+        cancels = out.execute(
+            "SELECT COUNT(*) FROM entry WHERE "
+            "UPPER(TRIM(COALESCE(type,'')))='CANCEL' OR "
+            "UPPER(TRIM(COALESCE(transaction_category,'')))='CANCEL'").fetchone()[0]
+        self.assertEqual(cancels, 0, "cancelled entries survived")
+        # value parity still holds (purged rows are excluded from it)
+        self.assertEqual(res["status"], "PASS", res["text"])
+        self.assertGreater(res["purge"]["rows_removed"], 0)
+        self.assertEqual(res["purge"]["enabled"], True)
+        out.close()
+
+    def test_purge_cascades_to_children(self):
+        old = self._fixture("t10.db")
+        c = sqlite3.connect(old)
+        sale_id = c.execute(
+            "SELECT id FROM direct_sale WHERE id IN "
+            "(SELECT sale_id FROM direct_sale_item) ORDER BY id LIMIT 1"
+        ).fetchone()[0]
+        c.execute("UPDATE direct_sale SET is_void = 1 WHERE id = ?", (sale_id,))
+        c.commit()
+        items = c.execute("SELECT COUNT(*) FROM direct_sale_item WHERE sale_id = ?",
+                          (sale_id,)).fetchone()[0]
+        c.close()
+        self.assertGreater(items, 0, "fixture needs a sale with items")
+        res = self._run(old, "t10_out.db")
+        out = sqlite3.connect(self.tmp / "t10_out.db")
+        self.assertIsNone(
+            out.execute("SELECT id FROM direct_sale WHERE id = ?",
+                        (sale_id,)).fetchone(), "voided sale survived")
+        self.assertEqual(
+            out.execute("SELECT COUNT(*) FROM direct_sale_item WHERE sale_id = ?",
+                        (sale_id,)).fetchone()[0], 0,
+            "children of the voided sale survived")
+        # no dangling references left behind by the cascade
+        self.assertEqual(
+            out.execute("SELECT COUNT(*) FROM direct_sale_item WHERE sale_id "
+                        "IS NOT NULL AND sale_id NOT IN "
+                        "(SELECT id FROM direct_sale)").fetchone()[0], 0)
+        self.assertEqual(res["status"], "PASS", res["text"])
+        out.close()
+
+    def test_keep_voided_flag_preserves_the_archive(self):
+        old = self._fixture("t11.db")
+        out_path = self.tmp / "t11_out.db"
+        res = E.run_migration(old, NEW_DEFAULT, out_path=out_path,
+                              purge_voided=False)
+        self.assertIn("PURGE SKIPPED", res["text"])
+        self.assertEqual(res["purge"]["enabled"], False)
+        self.assertEqual(res["purge"]["rows_removed"], 0)
+        out = sqlite3.connect(out_path)
+        voided = out.execute(
+            "SELECT COUNT(*) FROM payment WHERE "
+            "COALESCE(CAST(is_void AS INTEGER),0) = 1").fetchone()[0]
+        out.close()
+        self.assertGreater(voided, 0, "--keep-voided must retain voided rows")
 
     # ---- R1: refusal guards keep refusing ----------------------------------
     def test_swapped_roles_are_refused(self):

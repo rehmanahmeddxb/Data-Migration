@@ -149,7 +149,11 @@ def void_delivery_rent(id):
         return redirect(url_for('delivery_rents_page'))
     row = db.session.get(SaleDeliveryPerson, id)
     if row:
-        row.is_void = True
+        # Policy: no void flags — delete the row and the driver payments that
+        # were settled against it.
+        DeliveryPersonPayment.query.filter_by(allocation_id=id).delete(
+            synchronize_session=False)
+        db.session.delete(row)
         db.session.commit()
         flash('Delivery rent entry deleted.', 'success')
     return redirect(url_for('delivery_rents_page'))

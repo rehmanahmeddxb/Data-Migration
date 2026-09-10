@@ -796,6 +796,40 @@ def _release_stale_system_locks():
         db.session.rollback()
 
 
+def _purge_voided_rows_at_boot() -> dict:
+    """Enforce the no-void policy on every start: no voided row survives.
+
+    The v4.4 application deletes for real, so a row flagged ``is_void = 1`` (or
+    a cancelled ``entry``) is a record that should not exist — whether an app
+    path produced it or it was inherited from a legacy database.  This runs the
+    shared purge contract (``app/services/void_purge.py``, the same one the
+    migration tool uses) and logs what it removed.
+
+    Never fatal: a failure here is logged, never raised.  Set
+    ``AMS_KEEP_VOIDED_ROWS=1`` to disable (archives only).
+    """
+    if str(os.environ.get("AMS_KEEP_VOIDED_ROWS", "")).strip().lower() in (
+            "1", "true", "on", "yes"):
+        return {}
+    try:
+        from app.services.void_purge import purge_voided_rows
+        report = purge_voided_rows(db_path)
+    except Exception:
+        logging.getLogger(__name__).exception('Void purge at boot failed')
+        return {}
+    removed = int(report.get("deleted") or 0)
+    if removed:
+        totals = report.get("totals") or {}
+        logging.getLogger('app').warning(
+            "Void purge at boot removed %s rows (void=%s cancel=%s cascade=%s "
+            "orphan=%s) from %s — the database holds no voided data by policy",
+            removed, totals.get("removed_void"), totals.get("removed_cancel"),
+            totals.get("removed_cascade"), totals.get("removed_missing_parent"),
+            db_path,
+        )
+    return report
+
+
 def _bootstrap_database():
     db.create_all()
     try:
@@ -890,6 +924,12 @@ def _bootstrap_database():
         bootstrap_tenancy()
     except Exception:
         db.session.rollback()
+    try:
+        # Policy: no voided/cancelled rows in the database (runs after every
+        # other repair so it also cleans up anything a repair path flagged).
+        _purge_voided_rows_at_boot()
+    except Exception:
+        pass
     try:
         logging.getLogger('app').info('DB loaded: %s | counts=%s', db_path, _db_debug_counts())
     except Exception:

@@ -242,8 +242,10 @@ def client_booking_cancel_revert(client_id, entry_id):
                 created_by=current_user.username
             ))
 
-    # Mark cancellation row voided (audit-preserving revert).
-    entry.is_void = True
+    # Remove the cancellation row outright (policy: no void flags).  The stock
+    # and pending-bill corrections above already happened, and the revert is
+    # recorded in the audit log by the caller.
+    db.session.delete(entry)
     db.session.commit()
     flash(f'Cancellation reverted for {material_name} ({qty:.2f}).', 'success')
     return redirect(url_for('client_ledger', id=client.id))

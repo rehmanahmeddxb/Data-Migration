@@ -147,6 +147,59 @@ def _health_snapshot_payload(counts=None, intentional_operation=None, previous_s
     return snapshot
 
 
+# Reset sources the startup guard accepts as "the smaller database is wanted".
+# 'granular_wipe' comes from the wipe screens; 'full_db_import' is set when a
+# migrated/imported database replaces the live one (row counts legitimately
+# change, so the next start must re-baseline instead of refusing to start).
+INTENTIONAL_RESET_SOURCES = ('granular_wipe', 'full_db_import')
+
+
+def rebaseline_after_full_import(source_label: str = "") -> bool:
+    """Re-baseline the health snapshot right after a full-database import.
+
+    A migration or `.amsdb` import legitimately changes row counts — often
+    downwards when an older/smaller legacy file is loaded.  The startup guard
+    compares counts against this snapshot and *refuses to start* on a drop of
+    >= DB_HEALTH_DROP_MIN rows (default 50) or below DB_HEALTH_DROP_RATIO
+    (default 0.8), which would otherwise brick the app after a perfectly good
+    migration.  Writing the new baseline here (and marking it intentional)
+    makes the next start re-baseline instead of aborting.
+
+    Uses raw sqlite3 — it runs right after the importer, which also works
+    outside SQLAlchemy — and never raises: a failure here must not fail an
+    import that already succeeded.
+    """
+    try:
+        con = sqlite3.connect(db_path)
+        try:
+            counts = {'user': 0, 'client': 0, 'booking': 0,
+                      'direct_sale': 0, 'entry': 0, 'pending_bill': 0}
+            for key in counts:
+                try:
+                    counts[key] = int(con.execute(
+                        f'SELECT COUNT(*) FROM "{key}"').fetchone()[0] or 0)
+                except sqlite3.Error:
+                    counts[key] = 0
+        finally:
+            con.close()
+        snapshot = _health_snapshot_payload(counts=counts, previous_snapshot=None)
+        snapshot['intentional_reset'] = True
+        snapshot['reset_source'] = 'full_db_import'
+        if source_label:
+            snapshot['reset_note'] = str(source_label)[:200]
+        ok = _write_health_snapshot(snapshot)
+        if ok:
+            logging.getLogger(__name__).info(
+                "DB health baseline re-based after full database import (%s): total=%s",
+                source_label or 'import', sum(counts.values()))
+        return bool(ok)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            'Could not re-baseline the DB health snapshot after a full import '
+            '(delete instance/health_snapshot.json if the next start refuses).')
+        return False
+
+
 def _rebuild_health_snapshot(intentional_operation=None, reset_context=None):
     snapshot = _health_snapshot_payload(
         intentional_operation=intentional_operation,
@@ -264,12 +317,15 @@ def _db_health_check_after_bootstrap():
         prev_total = int(snapshot.get('total') or 0)
         intentional_reset = (
             snapshot.get('intentional_reset') is True
-            and snapshot.get('reset_source') == 'granular_wipe'
+            and snapshot.get('reset_source') in INTENTIONAL_RESET_SOURCES
         )
         if intentional_reset:
+            note = snapshot.get('reset_note') or ''
             warnings.append(
-                "DB health baseline was created by an intentional granular wipe. "
-                "Startup protection remains active against drops below this baseline."
+                f"DB health baseline was re-based by an intentional "
+                f"'{snapshot.get('reset_source')}' operation"
+                + (f" ({note})" if note else "")
+                + " — startup protection remains active against drops below this baseline."
             )
 
         prev_norm = _norm_path(prev_path)

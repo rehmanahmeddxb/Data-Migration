@@ -212,11 +212,27 @@ def full_db_import():
             pass
 
         if report["verification"] == "PASS":
+            # Re-baseline the startup data-loss guard: a migration/import
+            # legitimately changes row counts, and the guard would otherwise
+            # refuse to start the app on the next boot (and again on every
+            # boot after that) because counts dropped vs the old snapshot.
+            try:
+                from app.services import health as health_service
+                rebased = health_service.rebaseline_after_full_import(
+                    f"full_db_import mode={mode} source={file.filename}"
+                )
+            except Exception:
+                rebased = False
             flash(
                 f"Full database import complete ({mode}). Cleaned "
                 f"{meta['rows_deleted']} rows, inserted {meta['rows_inserted']} rows "
                 f"across {meta['tables_shared']} tables. Integrity ok, 0 FK "
-                "violations. A backup of the previous database was saved first.",
+                "violations. A backup of the previous database was saved first."
+                + ("" if rebased else
+                   " NOTE: the startup health baseline could not be refreshed — "
+                   "delete instance/health_snapshot.json before the next start, "
+                   "otherwise the app may refuse to boot (ALLOW_DB_DROP=1 "
+                   "overrides)."),
                 "success",
             )
         else:

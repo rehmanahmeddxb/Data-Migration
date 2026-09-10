@@ -96,7 +96,18 @@ def edit_pending_bill(id):
 def delete_pending_bill(id):
     bill = db.session.get(PendingBill, id)
     if bill:
-        bill.is_void = True
+        # Policy: deletes remove the row — no void flags are left behind.
+        # Follow-up reminders/contacts of this bill go with it.
+        try:
+            from app.services.void_rebuild import hard_delete_pending_bill
+            hard_delete_pending_bill(bill)
+        except Exception:
+            db.session.rollback()
+            FollowUpContact.query.filter_by(pending_bill_id=id).delete(
+                synchronize_session=False)
+            FollowUpReminder.query.filter_by(pending_bill_id=id).delete(
+                synchronize_session=False)
+            db.session.delete(bill)
         db.session.commit()
         flash('Bill deleted', 'warning')
     return redirect(url_for('pending_bills'))
@@ -252,11 +263,18 @@ def edit_grn(id):
                 if mat:
                     mat.total = (mat.total or 0) - (item.qty or 0)
 
-            # 2. Void old items and entries (preserve audit trail)
-            for item in (grn_obj.items or []):
-                item.is_void = True
+            # 2. Remove the superseded lines and their stock entries outright
+            #    (policy: no void flags — a replaced row is deleted).
+            for item in list(grn_obj.items or []):
+                # detach first: the relationship is delete-orphan, and the
+                # edit code below rebuilds the lines from the form
+                try:
+                    grn_obj.items.remove(item)
+                except Exception:
+                    pass
+                db.session.delete(item)
             for e in Entry.query.filter(Entry.auto_bill_no == grn_obj.auto_bill_no, Entry.type == 'IN').all():
-                e.is_void = True
+                db.session.delete(e)
         
         # 3. Update GRN fields
         supplier_input = request.form.get('supplier', '').strip()

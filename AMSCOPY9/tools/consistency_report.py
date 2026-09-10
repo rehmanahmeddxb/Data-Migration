@@ -35,7 +35,12 @@ from pathlib import Path
 
 _repo_root = Path(__file__).resolve().parents[1]
 _db_env = os.environ.get("APP_DB_PATH", "").strip()
-DB_PATH = Path(_db_env).expanduser() if _db_env else (_repo_root / "instance" / "ahmed_cement.db")
+# Default to the LIVE v4.4 database. The old default (instance/ahmed_cement.db)
+# is a retired file, which made the documented "one-command health check" exit 1
+# on every healthy installation.
+DB_PATH = Path(_db_env).expanduser() if _db_env else (
+    _repo_root / "instance" / "ahmed_cement_v44_fresh.db"
+)
 _snapshot_env = os.environ.get("DB_HEALTH_SNAPSHOT_PATH", "").strip()
 HEALTH_SNAPSHOT = (
     Path(_snapshot_env).expanduser()
@@ -446,9 +451,22 @@ if __name__ == "__main__":
         action="store_true",
         help="Exit with code 1 if any FAIL checks are found",
     )
+    ap.add_argument(
+        "--db",
+        help="database file to inspect (default: $APP_DB_PATH, else "
+             "instance/ahmed_cement_v44_fresh.db). Opened read-only.",
+    )
     ns = ap.parse_args()
 
-    report = run_all_checks()
+    if ns.db:
+        DB_PATH = Path(ns.db).expanduser()
+        HEALTH_SNAPSHOT = DB_PATH.parent / "health_snapshot.json"
+
+    try:
+        report = run_all_checks()
+    except Exception as exc:  # a crash must not look like a clean run
+        print(f"ERROR: consistency report failed: {exc!r}", file=sys.stderr)
+        sys.exit(1)
 
     if ns.json:
         print(json.dumps(report, indent=2, default=str))
