@@ -46,6 +46,58 @@ KEEP_FROM_NEW = {
 # New-only seed tables that reference replaced tables — cleared (no FK orphans).
 DELETE_SEED = {"cash_day_account_position", "cash_day_lock"}
 
+# ---------------------------------------------------------------------------
+# Purge policy: NO voided or cancelled data is carried into the new database.
+#
+# The v4.4 application deletes for real (app/services/void_rebuild.py::
+# hard_delete_transaction removes the row and its children); it does not create
+# voided rows.  The legacy `is_void` / cancelled rows are therefore dead weight
+# that would only inflate ledgers, stock and reports.  This contract is ported
+# from the retired Excel pipeline (tools/migrate/_migrate_common.py::
+# compute_clean_frames) so both migration paths mean the same thing by "clean":
+#   * every row with is_void = 1 is dropped
+#   * entry rows that are CANCEL are dropped even when is_void = 0
+#   * children of dropped parents are dropped too (cascade), so no orphan
+#     foreign keys survive
+#   * rows pointing at a parent that never existed are dropped as well
+# ---------------------------------------------------------------------------
+
+# (table, column, value) — cancelled rows that do not carry is_void = 1.
+CANCEL_RULES = (
+    ("entry", "type", "CANCEL"),
+    ("entry", "transaction_category", "CANCEL"),
+)
+
+# (child, child_fk, parent, extra SQL condition or None)
+CASCADE_RULES = (
+    ("booking_item", "booking_id", "booking", None),
+    ("direct_sale_item", "sale_id", "direct_sale", None),
+    ("booking_allocation", "sale_id", "direct_sale", None),
+    ("booking_allocation", "sale_item_id", "direct_sale_item", None),
+    ("booking_allocation", "booking_item_id", "booking_item", None),
+    ("entry", "source_id", "direct_sale", "source_table = 'direct_sale'"),
+    ("pending_bill", "source_id", "direct_sale", "source_table = 'direct_sale'"),
+    ("pending_bill", "source_id", "booking", "source_table = 'booking'"),
+    ("delivery_rent", "sale_id", "direct_sale", None),
+    ("sale_delivery_persons", "sale_id", "direct_sale", None),
+    ("waive_off", "payment_id", "payment", None),
+    ("material_return", "payment_id", "payment", None),
+    ("grn_item", "grn_id", "grn", None),
+    ("material_return_item", "material_return_id", "material_return", None),
+    ("follow_up_reminder", "pending_bill_id", "pending_bill", None),
+    ("follow_up_contact", "pending_bill_id", "pending_bill", None),
+    ("delivery_person_payment", "sale_id", "direct_sale", None),
+    ("delivery_person_payment", "allocation_id", "sale_delivery_persons", None),
+    ("delivery_person_payment", "delivery_person_id", "delivery_person", None),
+    ("direct_sale_item", "grn_item_id", "grn_item", None),
+)
+
+# (child, child_fk, parent) — drop rows whose parent does not exist at all
+# (legacy dangling references, not caused by this purge).
+MISSING_PARENT_RULES = (
+    ("booking_allocation", "booking_item_id", "booking_item"),
+)
+
 # Columns that hold user ids (old Django schema defines no DB-level FKs).
 USER_REF_COLS = {"user_id", "created_by_id"}
 
@@ -404,6 +456,117 @@ def _duplicate_scan(con: sqlite3.Connection) -> list:
     return found
 
 
+def _purge_voided(con: sqlite3.Connection, tables: list, say) -> dict:
+    """Delete every voided / cancelled row (and its children) from the output.
+
+    Policy: the new database carries **no** voided data.  Returns a per-table
+    report ``{table: {total, kept, removed_void, removed_cancel,
+    removed_cascade, removed_missing_parent}}`` for the migration report.
+    """
+    present = set(tables)
+
+    def has(t: str) -> bool:
+        return t in present
+
+    def cols(t: str) -> set:
+        return {r[1] for r in con.execute(f'PRAGMA table_info({_q(t)})')}
+
+    def all_ids(t: str) -> set:
+        if not has(t) or "id" not in cols(t):
+            return set()
+        return {r[0] for r in con.execute(f'SELECT id FROM {_q(t)}')}
+
+    dropped: dict = {}
+    void_ids: dict = {}
+    cancel_ids: dict = {}
+
+    def mark(table: str, ids: set) -> None:
+        if ids:
+            dropped.setdefault(table, set()).update(ids)
+
+    # ---- pass 1: is_void = 1 -----------------------------------------------
+    for t in sorted(present):
+        if "is_void" not in cols(t):
+            continue
+        ids = {r[0] for r in con.execute(
+            f'SELECT id FROM {_q(t)} WHERE COALESCE(CAST({_q("is_void")} AS INTEGER), 0) = 1'
+        )}
+        if ids:
+            void_ids[t] = ids
+            mark(t, ids)
+
+    # ---- pass 2: cancelled entries (is_void may still be 0) ----------------
+    for t, col, value in CANCEL_RULES:
+        if not has(t) or col not in cols(t):
+            continue
+        ids = {r[0] for r in con.execute(
+            f'SELECT id FROM {_q(t)} WHERE UPPER(TRIM(COALESCE({_q(col)}, \'\'))) = ?',
+            (value.upper(),)
+        )}
+        if ids:
+            cancel_ids.setdefault(t, set()).update(ids)
+            mark(t, ids)
+
+    # ---- pass 3: cascade (repeat until stable — chains are possible) -------
+    parent_ids = {t: all_ids(t) for t in
+                  {p for _, _, p, _ in CASCADE_RULES} |
+                  {p for _, _, p in MISSING_PARENT_RULES}}
+    while True:
+        before = sum(len(v) for v in dropped.values())
+        for child, col, parent, cond in CASCADE_RULES:
+            if not has(child) or not has(parent) or col not in cols(child):
+                continue
+            gone = parent_ids.get(parent, set()) & dropped.get(parent, set())
+            if not gone:
+                continue
+            placeholders = ", ".join("?" for _ in gone)
+            sql = (f'SELECT id FROM {_q(child)} WHERE {_q(col)} IN ({placeholders})')
+            args = list(gone)
+            if cond:
+                sql += f' AND ({cond})'
+            mark(child, {r[0] for r in con.execute(sql, args)})
+        if sum(len(v) for v in dropped.values()) == before:
+            break
+
+    # ---- pass 4: rows whose parent never existed ---------------------------
+    missing: dict = {}
+    for child, col, parent in MISSING_PARENT_RULES:
+        if not has(child) or not has(parent) or col not in cols(child):
+            continue
+        alive = parent_ids.get(parent, set()) - dropped.get(parent, set())
+        rows = con.execute(
+            f'SELECT id, {_q(col)} FROM {_q(child)} WHERE {_q(col)} IS NOT NULL'
+        ).fetchall()
+        ids = {r[0] for r in rows if r[1] not in alive and
+               r[0] not in dropped.get(child, set())}
+        if ids:
+            missing[child] = ids
+            mark(child, ids)
+
+    # ---- delete ------------------------------------------------------------
+    report = {}
+    for t in sorted(dropped):
+        ids = dropped[t]
+        total = con.execute(f'SELECT COUNT(*) FROM {_q(t)}').fetchone()[0]
+        v = len(void_ids.get(t, set()))
+        # a row can be BOTH void and cancelled — count it once (the Excel
+        # pipeline's purge_report double-counted 16 such rows)
+        c = len(cancel_ids.get(t, set()) - void_ids.get(t, set()))
+        m = len(missing.get(t, set()))
+        con.executemany(
+            f'DELETE FROM {_q(t)} WHERE id = ?', [(i,) for i in ids])
+        kept = con.execute(f'SELECT COUNT(*) FROM {_q(t)}').fetchone()[0]
+        report[t] = {
+            "total": total,
+            "kept": kept,
+            "removed_void": v,
+            "removed_cancel": c,
+            "removed_cascade": max(0, len(ids) - v - c - m),
+            "removed_missing_parent": m,
+        }
+    return report
+
+
 def _required_column_problems(con: sqlite3.Connection, tables: list) -> list:
     """New-schema columns that would break the load, detected *before* loading.
 
@@ -446,7 +609,8 @@ def _required_column_problems(con: sqlite3.Connection, tables: list) -> list:
 
 
 def _table_fingerprint(con: sqlite3.Connection, table: str, cols: list,
-                       prefix: str = "", user_map: dict = None) -> tuple:
+                       prefix: str = "", user_map: dict = None,
+                       only_ids_from: bool = False) -> tuple:
     """Order-independent md5 over every copied value of a table.
 
     Row counts prove *how many* rows arrived; this proves *which values*
@@ -456,14 +620,21 @@ def _table_fingerprint(con: sqlite3.Connection, table: str, cols: list,
     ``user_map`` applies the documented old-id -> new-id user remap to the
     user-reference columns first, so the *only* transformation the migration
     performs is treated as expected (pass it for the OLD side only).
+
+    ``only_ids_from`` restricts the scan to ids that still exist in the *output*
+    table (used for the OLD side after a purge, so intentionally removed rows
+    are not reported as value mismatches).
     """
     h = hashlib.md5()
     if not cols:
         return 0, h.hexdigest()
     col_csv = ", ".join(_q(c) for c in cols)
     remap_at = [i for i, c in enumerate(cols) if c in USER_REF_COLS]
+    sql = f'SELECT {col_csv} FROM {prefix}{_q(table)}'
+    if only_ids_from:
+        sql += f' WHERE {_q("id")} IN (SELECT {_q("id")} FROM {_q(table)})'
     rows = []
-    for r in con.execute(f'SELECT {col_csv} FROM {prefix}{_q(table)}'):
+    for r in con.execute(sql):
         vals = list(r)
         if user_map and remap_at:
             for i in remap_at:
@@ -482,11 +653,17 @@ def _table_fingerprint(con: sqlite3.Connection, table: str, cols: list,
 # ---------------------------------------------------------------------------
 
 def run_migration(old_path, new_path, out_path=None, overwrite=True,
-                  progress=None, allow_v44_old: bool = False) -> dict:
+                  progress=None, allow_v44_old: bool = False,
+                  purge_voided: bool = True) -> dict:
     """Migrate old database data into the new v4.4 schema file.
 
+    ``purge_voided`` (default True) removes every voided / cancelled row — and
+    its children — from the result, because the v4.4 app hard-deletes and must
+    not inherit the legacy soft-delete rows.  Pass False (CLI ``--keep-voided``)
+    only when the archive must be preserved bit-for-bit.
+
     Returns a dict report: status in {PASS, REVIEW}, ok (bool),
-    text (full report), summary lines, files, rows, totals, indexes,
+    text (full report), summary lines, files, rows, totals, purge, indexes,
     warnings/errors, out_path, report_path.
     """
     started = time.time()
@@ -736,6 +913,40 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             if remapped_refs:
                 say(f"      user-id refs remapped: {sorted(set(remapped_refs))}")
 
+            # ---- purge: no voided / cancelled data in the new database ------
+            prog(90, "Purging voided / cancelled rows ...")
+            purge_report = {}
+            if purge_voided:
+                purge_report = _purge_voided(con, out_tables, say)
+                say("")
+                say("=" * 78)
+                say("PURGE — NO VOIDED OR CANCELLED DATA IS CARRIED")
+                say("=" * 78)
+                if not purge_report:
+                    say("  nothing to purge — the old file carried no voided or "
+                        "cancelled rows.")
+                else:
+                    say(f"  {'table':30} {'total':>7} {'void':>6} {'cancel':>7} "
+                        f"{'cascade':>8} {'orphan':>7} {'kept':>7}")
+                    tot = {"total": 0, "kept": 0, "removed_void": 0,
+                           "removed_cancel": 0, "removed_cascade": 0,
+                           "removed_missing_parent": 0}
+                    for t, r in sorted(purge_report.items()):
+                        say(f"  {t:30} {r['total']:7} {r['removed_void']:6} "
+                            f"{r['removed_cancel']:7} {r['removed_cascade']:8} "
+                            f"{r['removed_missing_parent']:7} {r['kept']:7}")
+                        for k in tot:
+                            tot[k] += r[k]
+                    say(f"  {'TOTAL':30} {tot['total']:7} {tot['removed_void']:6} "
+                        f"{tot['removed_cancel']:7} {tot['removed_cascade']:8} "
+                        f"{tot['removed_missing_parent']:7} {tot['kept']:7}")
+                    say("  Children of purged rows are purged with them, so no "
+                        "orphan foreign keys are left behind.")
+            else:
+                say("")
+                say("PURGE SKIPPED (--keep-voided): voided and cancelled rows were "
+                    "carried over as-is.")
+
             # ---- finalise counters + autoincrement -------------------------
             _reset_auto_increment(con)
             con.commit()
@@ -777,7 +988,9 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                         # audit D-2: KEEP_FROM_NEW discards old rows — surface it
                         dropped_keep.append(f"{t} ({o} row(s))")
                 else:
-                    expect = o
+                    # rows removed by the purge policy are expected to be gone
+                    expect = o - purge_report.get(t, {}).get("total", 0) \
+                        + purge_report.get(t, {}).get("kept", 0)
                 st = "OK" if outn == expect else "MISMATCH"
                 if outn != expect:
                     mismatches.append(t)
@@ -815,7 +1028,11 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                 if not inter:
                     continue
                 fp_tables += 1
-                a = _table_fingerprint(con, t, inter, prefix="old.", user_map=umap)
+                # compare only the rows that survived the purge (purged rows are
+                # an intentional removal, not a value mismatch)
+                survivor_only = bool(purge_report.get(t)) and "id" in inter
+                a = _table_fingerprint(con, t, inter, prefix="old.", user_map=umap,
+                                       only_ids_from=survivor_only)
                 b = _table_fingerprint(con, t, inter)
                 if a != b:
                     value_mismatch.append(f"{t} (old {a[0]} rows vs out {b[0]} rows)")
@@ -1004,6 +1221,12 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                 "new_schema_tables": len(out_tables),
                 "users_added": len(old_user_rows),
                 "tables_loaded": len(rows_detail),
+                "purge": {
+                    "enabled": bool(purge_voided),
+                    "tables": purge_report,
+                    "rows_removed": sum(
+                        r["total"] - r["kept"] for r in purge_report.values()),
+                },
                 "relaxed_indexes": relaxed_global,
                 "warnings": classify_warnings,
                 "issues": issues,
@@ -1080,6 +1303,11 @@ if __name__ == "__main__":
     ap.add_argument("--out", help="output migration file (default: next to NEW)")
     ap.add_argument("--no-overwrite", action="store_true")
     ap.add_argument(
+        "--keep-voided", action="store_true",
+        help="carry voided/cancelled rows over instead of purging them "
+             "(default is to purge: the new database must hold no voided data)",
+    )
+    ap.add_argument(
         "--allow-v44-old", action="store_true",
         help="permit an OLD file that already carries v4.4 markers (experts only:"
              " re-migrating re-maps user ids and corrupts audit attribution)",
@@ -1096,6 +1324,7 @@ if __name__ == "__main__":
             overwrite=not args.no_overwrite,
             progress=_prog,
             allow_v44_old=args.allow_v44_old,
+            purge_voided=not args.keep_voided,
         )
         _print_summary(report)
         sys.exit(0 if report["ok"] else 3)

@@ -21,6 +21,35 @@ created.
 No third-party packages are needed — just Python 3 (with tkinter, which ships
 with the normal python.org Windows installer).
 
+## Void policy — the new database keeps no voided data
+
+The old application never deleted a record: it marked it `is_void = 1` (and
+cancelled entries as `type='CANCEL'`). The v4.4 application deletes for real
+(`hard_delete_transaction` removes the row and its children), so those rows are
+dead weight — they would sit in the new ledgers, stock and reports forever.
+
+The tool therefore **purges them by default**, using the same contract as the
+retired Excel pipeline (`tools/migrate/_migrate_common.py`):
+
+| Removed | Rule |
+|---|---|
+| `is_void = 1` | every row in every table that carries the flag |
+| Cancelled entries | `entry.type = 'CANCEL'` or `entry.transaction_category = 'CANCEL'`, even when `is_void = 0` |
+| Cascade | children of a purged parent (sale → its items, entries, pending bills, rents, allocations; payment → its waive-offs and material returns; …), so no orphan references survive |
+| Dangling rows | rows whose parent never existed (e.g. `booking_allocation.booking_item_id`) |
+
+Every removal is counted per table and printed in a **PURGE** section of the
+report (and in `.report.json` under `purge`). Nothing is removed silently.
+
+On the real data that is **87 rows** out of 29,266 (61 voided, 24 cancelled,
+2 cascaded) — `payment −18,664`, `account_transaction −446,114`,
+`entry qty −17,547`, `material_return −35,328`, `waive_off −279`. Those are
+amounts the old reports already excluded, and the app's own consistency report
+returns **identical results before and after** the purge.
+
+Run with `--keep-voided` (or untick the *Purge voided / cancelled rows* box in
+the GUI) if you ever need a bit-for-bit archive instead.
+
 ## Before you migrate — the 30-second pre-flight
 
 The tool copies the old rows into whatever columns the **template** has, so the
@@ -66,6 +95,8 @@ python3 "check_template_sync.py" --template <your v4.4 template>.db
 5. **Duplicates are handled**: rows are never deleted or merged. Only the
    exact unique index(es) the old data violates are relaxed (reported in the
    log); every other unique index is re-created and verified.
+6. **Voided and cancelled rows are purged** — the new database keeps **no**
+   voided data (see "Void policy" below).
 6. **Verification is automatic**: `PRAGMA integrity_check`, per-table parity
    (old count → migrated count → expected count), **value parity** (every copied
    value compared with the source, so a mis-mapped column cannot pass), index

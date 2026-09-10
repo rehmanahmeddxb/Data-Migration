@@ -270,9 +270,16 @@ def build_gui() -> None:
             var_out.set(str(default_out_path(new, old)))
 
     overwrite_var = tk.BooleanVar(value=True)
+    purge_var = tk.BooleanVar(value=True)
     ttk.Checkbutton(
         out_frame, text="Overwrite the output file if it already exists",
         variable=overwrite_var,
+    ).pack(anchor="w", pady=(6, 0))
+    ttk.Checkbutton(
+        out_frame,
+        text="Purge voided / cancelled rows (recommended — the new app keeps "
+             "no voided data; children are purged with their parents)",
+        variable=purge_var,
     ).pack(anchor="w", pady=(6, 0))
     tk.Label(
         out_frame,
@@ -377,6 +384,7 @@ def build_gui() -> None:
                     old, new,
                     out_path=out,
                     overwrite=overwrite_var.get(),
+                    purge_voided=purge_var.get(),
                     progress=_progress,
                 )
                 msgs.put(("done", report))
@@ -507,6 +515,7 @@ def run_cli(args: argparse.Namespace) -> int:
             overwrite=not args.no_overwrite,
             progress=_prog,
             allow_v44_old=getattr(args, "allow_v44_old", False),
+            purge_voided=not getattr(args, "keep_voided", False),
         )
     except MigrationError as e:
         print(f"ERROR: {e}", file=sys.stderr)
@@ -544,6 +553,11 @@ def main(argv=None) -> int:
     ap.add_argument(
         "--allow-v44-old", action="store_true",
         help="permit an OLD file that already carries v4.4 markers (experts only)",
+    )
+    ap.add_argument(
+        "--keep-voided", action="store_true",
+        help="carry voided/cancelled rows over instead of purging them "
+             "(the default is to purge them)",
     )
     args = ap.parse_args(argv)
 

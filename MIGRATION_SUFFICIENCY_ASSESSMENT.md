@@ -205,11 +205,15 @@ prevent partial data loss."*
 **Fix:** document the migration-day runbook (delete `instance/health_snapshot.json` before the
 first boot, or start once with `ALLOW_DB_DROP=1`), and print that hint in the tool's final report.
 
-### G6 — 🟡 LOW-MEDIUM: policy gaps carried over from the earlier audit (still open)
+### G6 — 🟡 LOW-MEDIUM: policy gaps carried over from the earlier audit
 
-* **Voided/cancelled rows are copied verbatim** (the SQLite path has no purge step): 13 voided
-  payments, 31 voided entries, 25 cancelled entries are live in the migrated data. The retired
-  Excel pipeline purged 11,687 such rows. No document states which policy wins.
+* ✅ **Voided/cancelled rows — POLICY DECIDED AND IMPLEMENTED.** The new database carries **no**
+  voided data. The tool purges by default (§3c): 61 `is_void = 1` rows + 24 cancelled `entry` rows
+  + 2 cascaded children = **87 rows** removed, children purged with their parents, and every
+  removal counted in the report. `--keep-voided` / a GUI checkbox preserves the archive instead.
+  ⬜ *Open sub-item:* the app's **Payment** delete path still keeps a voided row by design
+  (`void_rebuild.hard_delete_transaction`, "financial payments are never hard-deleted"), unlike
+  Booking/DirectSale which truly hard-delete — see §3c.
 * **`KEEP_FROM_NEW` drops the old `settings` row** (company name, tax rate, bill prefixes) — now
   flagged `REVIEW`, but for a real migration it means re-entering company settings, or adding a
   `--carry-settings` policy flag.
@@ -278,6 +282,46 @@ restoration) and G7 (committed `secret_key.txt` + ~30 MB of real business data i
 
 ---
 
+## 3c. The void policy (decided 2026-09-10): **no voided data in the new database**
+
+The old app never deleted anything — it set `is_void = 1` (and marked cancelled entries as
+`type='CANCEL'`). The v4.4 app deletes for real: `app/services/void_rebuild.py::
+hard_delete_transaction` removes the row *and* its children, and **no code path in `app/` or
+`blueprints/` ever writes `is_void = 1`** (the only writer is the dummy-data generator). So the
+legacy voided rows are dead weight that would sit in the new ledgers, stock and reports forever.
+
+**Implemented:** the migration tool now purges them (ported from the retired Excel pipeline's
+contract in `tools/migrate/_migrate_common.py`) — `is_void = 1` everywhere, cancelled `entry` rows,
+cascade to children of purged parents, and rows whose parent never existed. Default **on**;
+`--keep-voided` / GUI checkbox for a bit-for-bit archive.
+
+| Measured on the real file | Rows |
+|---|---|
+| `is_void = 1` | 61 (`entry` 31, `account_transaction` 13, `payment` 13, `waive_off` 4) |
+| Cancelled `entry` (not already void) | 24 |
+| Cascaded children | 2 (`material_return` + `material_return_item` of a voided payment) |
+| **Removed** | **87 of 29,266** |
+
+**Verified after the purge:** 0 `is_void = 1` rows in any table · 0 cancelled entries · 0 dangling
+parent references across all 22 parent/child pairs · integrity `ok` · `fk_violations 0` · value
+parity identical · index parity · `RESULT: PASS`. And the app's own `consistency_report.py`
+returns **byte-identical results** before and after (Account Balances OK, Material Totals OK, same
+4 pre-existing source-data warnings) — because the app already excluded voided rows from those
+computations, so nothing shifts.
+
+Money that leaves with them (all previously excluded from reports anyway): `payment −18,664` ·
+`account_transaction −446,114` · `entry qty −17,547.3` · `material_return −35,328` ·
+`waive_off −279.1`.
+
+**One app-side exception you should decide on:** `hard_delete_transaction` hard-deletes Booking and
+DirectSale, but for **Payment** it deliberately keeps the row and marks it void ("financial
+payments are never hard-deleted … preserve the stable source identity, linked (voided) ledger
+entries, waive-off rows and audit references"). If the *no voided rows at all* rule must also hold
+for future deletions, that branch has to change to a real hard delete — a financial-behaviour
+change I did not make unilaterally, because it removes the audit trail for deleted payments.
+
+---
+
 ## 4. Bottom line for the next migration
 
 **Go** — for an old file of this lineage (same table/column names) the tool is provably complete,
@@ -310,10 +354,14 @@ the list is:
 3. ✅ **G4** — value parity, so `PASS` means values, not just counts.
 4. ✅ **G2 + G5** — NULL-filled columns reported, boot-day runbook printed, and the Import
    screen now re-baselines the health snapshot so the app cannot refuse to start.
-5. ⬜ **Run `check_template_sync.py`** — the §2.6 template-vs-models check, now one command.
+5. ✅ **Void policy** — purged by default; the new database holds no voided data (§3c).
+6. ⬜ **Run `check_template_sync.py`** — the §2.6 template-vs-models check, now one command.
    Re-run it whenever the app's models change (and consider wiring it into CI).
-6. ⬜ **Decide G6** — void/cancel policy, whether old `settings` should be carried, and
-   restoring `uq_entry_auto_bill_no` after cleaning the two duplicate `SB-GRN` bill numbers.
+7. ⬜ **Decide the app-side Payment delete** — `hard_delete_transaction` keeps a voided payment
+   by design; make it a real hard delete if *no voided rows at all* must also hold going forward.
+8. ⬜ **Decide whether old `settings`** (company name, tax rate, bill prefixes) should be carried
+   instead of the template's — currently dropped and flagged `REVIEW`.
+9. ⬜ **Restore `uq_entry_auto_bill_no`** after cleaning the two duplicate `SB-GRN` bill numbers.
 
 ---
 
