@@ -446,7 +446,9 @@ def build_gui() -> None:
         status_var.configure(text="FAILED", fg="#b00020")
         _log("", "err")
         _log(f"ERROR: {msg}", "err")
-        _log("No source file was modified and no output was produced.", "err")
+        _log("No source file was modified. If the run had already produced a "
+             "partial output, it was quarantined as *.INCOMPLETE (never import "
+             "that file) and a *.report.txt failure report was written next to it.", "err")
         messagebox.showerror("Migration tool", f"Migration could not run:\n{msg}")
 
     # ------------------------- folder watching ----------------------------
