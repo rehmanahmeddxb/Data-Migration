@@ -1,6 +1,23 @@
 # AMS Data-Migration Tool — Complete Procedure Inventory + Working / Non-Working Audit
 
 > **Addendum (2026-09-10, later session):** the predicted D-1…D-5 failure modes were reproduced live against a *different* old file (crash on extra table, silent KEEP_FROM_NEW discard, no-rollback partial output, 209-index loss, output-path loop), the fixes below were **implemented** in `migrate tool/`, and the whole chain — different old file → v4.4 → app pages — was re-verified end-to-end. Results, diffs and 9 new regression tests: **`ANOTHER_OLD_FILE_VERIFICATION.md`**.
+>
+> **Status addendum (2026-09-10, second session):** this document is the
+> *pre-fix* audit; read it as the record that drove the work. Status of its
+> defect list and §8 recommendations after the fixes:
+> D-1…D-6, D-12 **fixed** in `migrate tool/` (18-test suite) · D-7/A-4
+> **fixed** (`EXPECTED_TOTALS` refreshed 2026-09-10 from the committed clean
+> export — gate 3 re-proven to print `RESULT: PASS`) · D-8/D-9 **fixed**
+> (`consistency_report.py` / `audit_findings.py` now `--db` + read-only +
+> exit 1) · D-10 **partially resolved** (pipeline kept, deps pinned in
+> `requirements-migrate.txt`, superseded banner added; the planned
+> `06_opening_state_migration.py` still does not exist — `MIGRATION_AUDIT.md`
+> is now marked *proposal, not record*) · D-11 unchanged (GUI needs tkinter;
+> CLI works everywhere) · §8 #1-#4 **done** · §8 #5 void policy **implemented**
+> (purge by default, + `grn_allocation`/declared-FK cascade completed, +
+> `--carry-settings`) · §8 #6/#7/#8 see `FINAL_MIGRATION_REPORT.md`
+> (sidecar gate added; secret key rotated; history purge + duplicate bill
+> cleanup remain manual/operator steps).
 
 **Audit date:** 2026-09-10
 **Audited by:** Arena agent session, branch `arena/01a08975-data-migration`

@@ -52,6 +52,8 @@ def _summarize(report: dict, verbose: bool = False) -> str:
     for key in ("out_path", "backup_path", "source_path", "target_path"):
         if report.get(key):
             lines.append(f"{key:<15}: {report[key]}")
+    if report.get("sidecar"):
+        lines.append(f"{'sidecar':<15}: {report['sidecar']}")
     for key in ("rows_inserted_total", "rows_deleted_total", "total_rows",
                 "fk_violations", "bytes"):
         if key in report:
@@ -135,6 +137,7 @@ def _cmd_import(a) -> int:
             backup_target=not a.no_backup,
             backup_dir=a.backup_dir,
             include_users=not a.keep_users,
+            require_sidecar=not a.allow_no_sidecar,
         )
     except FullDbSyncError as e:
         print(f"ERROR: {e}")
@@ -195,6 +198,10 @@ def main(argv=None) -> int:
     im.add_argument("--backup-dir", default="")
     im.add_argument("--keep-users", action="store_true",
                     help="do not wipe/import user rows (append/merge semantics)")
+    im.add_argument("--allow-no-sidecar", action="store_true",
+                    help="import a plain .db source even without its "
+                         "RESULT: PASS .report.txt sidecar (you verified it "
+                         "yourself; .amsdb snapshots are always exempt)")
     im.add_argument("--confirm", action="store_true", required=True,
                     help="required: this replaces the target data")
     add_common(im)

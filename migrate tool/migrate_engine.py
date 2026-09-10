@@ -90,6 +90,15 @@ CASCADE_RULES = (
     ("delivery_person_payment", "allocation_id", "sale_delivery_persons", None),
     ("delivery_person_payment", "delivery_person_id", "delivery_person", None),
     ("direct_sale_item", "grn_item_id", "grn_item", None),
+    # "Receipt" pending bills created by the payment flow (polymorphic
+    # source_id — not a declared FK, so it must be listed here).
+    ("pending_bill", "source_id", "payment", "source_table = 'payment'"),
+    # Declared-FK children are ALSO derived automatically from
+    # PRAGMA foreign_key_list in _purge_voided (2026-09-10): the hard-coded
+    # list only needs the polymorphic source_id links the schema does not
+    # declare (entry / pending_bill), plus anything the derivation cannot
+    # express.  grn_allocation / direct_sale.invoice_id and future child
+    # tables are covered by the derivation, so they are not listed twice.
 )
 
 # (child, child_fk, parent) — drop rows whose parent does not exist at all
@@ -508,12 +517,38 @@ def _purge_voided(con: sqlite3.Connection, tables: list, say) -> dict:
             mark(t, ids)
 
     # ---- pass 3: cascade (repeat until stable — chains are possible) -------
+    # The effective rule set is the hard-coded rules PLUS every *declared*
+    # FK pair of the output schema (2026-09-10 fix): derived from
+    # PRAGMA foreign_key_list so the purge stays complete when the schema
+    # gains child tables (e.g. grn_allocation -> direct_sale, direct_sale
+    # -> invoice) without CASCADE_RULES having to know about them.  The
+    # hard-coded list still covers the polymorphic source_id links the
+    # schema does not declare.
+    fk_rules: list = []
+    covered = {(c, k, p) for c, k, p, _ in CASCADE_RULES}
+    for child in sorted(present):
+        try:
+            fk_rows = con.execute(f'PRAGMA foreign_key_list({_q(child)})').fetchall()
+        except sqlite3.OperationalError:
+            continue
+        for f in fk_rows:
+            ref, fcol, tcol = f[2], f[3], f[4]
+            if ref not in present or (child, fcol, ref) in covered:
+                continue
+            # The fixpoint below matches on parent row ids — only add the
+            # rule when the FK really targets the parent's id column.
+            if tcol != "id" or fcol not in cols(child) or "id" not in cols(ref):
+                continue
+            covered.add((child, fcol, ref))
+            fk_rules.append((child, fcol, ref, None))
+    cascade_rules = list(CASCADE_RULES) + fk_rules
+
     parent_ids = {t: all_ids(t) for t in
-                  {p for _, _, p, _ in CASCADE_RULES} |
+                  {p for _, _, p, _ in cascade_rules} |
                   {p for _, _, p in MISSING_PARENT_RULES}}
     while True:
         before = sum(len(v) for v in dropped.values())
-        for child, col, parent, cond in CASCADE_RULES:
+        for child, col, parent, cond in cascade_rules:
             if not has(child) or not has(parent) or col not in cols(child):
                 continue
             gone = parent_ids.get(parent, set()) & dropped.get(parent, set())
@@ -654,13 +689,20 @@ def _table_fingerprint(con: sqlite3.Connection, table: str, cols: list,
 
 def run_migration(old_path, new_path, out_path=None, overwrite=True,
                   progress=None, allow_v44_old: bool = False,
-                  purge_voided: bool = True) -> dict:
+                  purge_voided: bool = True, carry_settings: bool = False) -> dict:
     """Migrate old database data into the new v4.4 schema file.
 
     ``purge_voided`` (default True) removes every voided / cancelled row — and
     its children — from the result, because the v4.4 app hard-deletes and must
     not inherit the legacy soft-delete rows.  Pass False (CLI ``--keep-voided``)
     only when the archive must be preserved bit-for-bit.
+
+    ``carry_settings`` (default False) loads the old file's own ``settings``
+    row (company name, tax rate, bill prefixes …) instead of keeping the
+    fresh template's — applied only when the old file has settings rows AND
+    the template's settings table is empty (never clobbering a configured
+    template).  Without the flag, old settings rows are dropped and the run
+    is flagged REVIEW (KEEP_FROM_NEW policy).
 
     Returns a dict report: status in {PASS, REVIEW}, ok (bool),
     text (full report), summary lines, files, rows, totals, purge, indexes,
@@ -789,10 +831,33 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             say(f"old tables    : {len(old_tables)}   new-schema tables: {len(out_tables)}")
             say("")
 
+            # ---- carry-settings policy (opt-in) --------------------------------
+            # A real business migration should keep the OLD company settings
+            # (name / tax / bill prefixes).  Applied only when the old file has
+            # settings rows and the fresh template's settings table is empty —
+            # a configured template is never clobbered.
+            settings_carry = False
+            if carry_settings and "settings" in shared:
+                old_set_n = con.execute('SELECT COUNT(*) FROM old."settings"').fetchone()[0]
+                new_set_n = con.execute('SELECT COUNT(*) FROM "settings"').fetchone()[0]
+                settings_carry = old_set_n > 0 and new_set_n == 0
+                if old_set_n > 0 and new_set_n > 0:
+                    say("NOTE: --carry-settings ignored: the NEW template already has "
+                        f"{new_set_n} settings row(s) — the fresh template's settings are "
+                        "kept (never clobbered).")
+
+            def _is_loaded(t: str) -> bool:
+                """Business tables loaded from OLD this run (vs KEEP_FROM_NEW)."""
+                if t == "user":
+                    return False
+                if t == "settings" and settings_carry:
+                    return True
+                return t not in KEEP_FROM_NEW
+
             # ---- pre-flight: columns that would abort the load mid-run ------
             # G3: a NOT NULL target column the old file cannot fill used to blow
             # up half-way through with a raw SQLite error.  Name it up-front.
-            to_load = [t for t in shared if t not in KEEP_FROM_NEW]
+            to_load = [t for t in shared if _is_loaded(t)]
             problems = _required_column_problems(con, to_load)
             if problems:
                 con.close()
@@ -811,10 +876,10 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             relaxed_global = []
             relaxed_names = set()
             skipped_cols = []
-            n_tables = len([t for t in shared if t not in KEEP_FROM_NEW and t != "user"])
+            n_tables = len([t for t in shared if _is_loaded(t)])
             done = 0
             for t in shared:
-                if t in KEEP_FROM_NEW or t == "user":
+                if not _is_loaded(t):
                     continue
                 done += 1
                 prog(15 + int(done / max(1, n_tables) * 70), f"Loading table {t} ...")
@@ -831,6 +896,9 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                 if relaxed:
                     extra += f"  RELAXED={relaxed}"
                 say(f"[LOAD] {t:32} seed_cleared={seed:6} -> old_rows={n:6}{extra}")
+                if t == "settings" and settings_carry:
+                    say(f"[CARRY] settings carried from the OLD file ({n} row(s)) — "
+                        "the fresh template had none")
 
             # ---- new-only seed tables: clear -------------------------------
             for t in DELETE_SEED:
@@ -982,7 +1050,7 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                 n = new_ro.execute(f'SELECT COUNT(*) FROM {_q(t)}').fetchone()[0]
                 if t == "user":
                     expect = o + n
-                elif t in KEEP_FROM_NEW:
+                elif t in KEEP_FROM_NEW and not (t == "settings" and settings_carry):
                     expect = n
                     if o:
                         # audit D-2: KEEP_FROM_NEW discards old rows — surface it
@@ -1020,7 +1088,7 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             value_mismatch = []
             fp_tables = 0
             for t in shared:
-                if t in KEEP_FROM_NEW or t == "user":
+                if not _is_loaded(t):
                     continue
                 old_cols = [r[1] for r in con.execute(
                     f'PRAGMA old.table_info({_q(t)})')]
@@ -1047,7 +1115,7 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             # ---- new-schema columns that arrive NULL (G2) ------------------
             filled_null = []
             for t in shared:
-                if t in KEEP_FROM_NEW:
+                if t in KEEP_FROM_NEW and not (t == "settings" and settings_carry):
                     continue
                 old_cols = {r[1] for r in con.execute(
                     f'PRAGMA old.table_info({_q(t)})')}
@@ -1128,7 +1196,9 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             say("")
             say("=== NEXT STEPS ===")
             say("  1. Only this file with 'RESULT: PASS' may be imported. A run that")
-            say("     aborted leaves <name>.INCOMPLETE — never import that.")
+            say("     aborted leaves <name>.INCOMPLETE — never import that. The app")
+            say("     importer requires the .report.txt sidecar (written here) for plain")
+            say("     .db sources; .amsdb snapshots are self-verifying and exempt.")
             say("  2. Load it through the app's importer (Import/Export Center ->")
             say("     Full Database Snapshot -> Import, mode 'Full sync'), or headless:")
             say("       python3 -m full_db_sync export --db <this file> --out AMS.amsdb")
@@ -1227,6 +1297,10 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                     "rows_removed": sum(
                         r["total"] - r["kept"] for r in purge_report.values()),
                 },
+                "carry_settings": {
+                    "requested": bool(carry_settings),
+                    "applied": bool(settings_carry),
+                },
                 "relaxed_indexes": relaxed_global,
                 "warnings": classify_warnings,
                 "issues": issues,
@@ -1312,6 +1386,12 @@ if __name__ == "__main__":
         help="permit an OLD file that already carries v4.4 markers (experts only:"
              " re-migrating re-maps user ids and corrupts audit attribution)",
     )
+    ap.add_argument(
+        "--carry-settings", action="store_true",
+        help="load the OLD file's settings row (company name/tax/prefixes) when the "
+             "NEW template's settings table is empty (default: keep the template's "
+             "and flag the old rows REVIEW)",
+    )
     args = ap.parse_args()
 
     def _prog(pct, msg):
@@ -1325,6 +1405,7 @@ if __name__ == "__main__":
             progress=_prog,
             allow_v44_old=args.allow_v44_old,
             purge_voided=not args.keep_voided,
+            carry_settings=args.carry_settings,
         )
         _print_summary(report)
         sys.exit(0 if report["ok"] else 3)

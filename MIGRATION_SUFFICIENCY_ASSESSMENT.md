@@ -211,12 +211,14 @@ first boot, or start once with `ALLOW_DB_DROP=1`), and print that hint in the to
   voided data. The tool purges by default (§3c): 61 `is_void = 1` rows + 24 cancelled `entry` rows
   + 2 cascaded children = **87 rows** removed, children purged with their parents, and every
   removal counted in the report. `--keep-voided` / a GUI checkbox preserves the archive instead.
-  ⬜ *Open sub-item:* the app's **Payment** delete path still keeps a voided row by design
-  (`void_rebuild.hard_delete_transaction`, "financial payments are never hard-deleted"), unlike
-  Booking/DirectSale which truly hard-delete — see §3c.
+  ✅ *Former open sub-item — RESOLVED (verified in code 2026-09-10):* the app's **Payment** delete
+  path now **truly hard-deletes** (`void_rebuild.hard_delete_payment` — "Policy (owner decision):
+  the database holds no voided rows"), so the no-voided-rows rule also holds for future deletions.
+  Audit trail moves to the append-only `audit_log` / `accounting_audit_log` — see §3c.
 * **`KEEP_FROM_NEW` drops the old `settings` row** (company name, tax rate, bill prefixes) — now
-  flagged `REVIEW`, but for a real migration it means re-entering company settings, or adding a
-  `--carry-settings` policy flag.
+  flagged `REVIEW`, and (added 2026-09-10) the tool's `--carry-settings` flag / GUI checkbox loads
+  the old settings row when the template's settings table is empty, so a real migration can carry
+  company settings without re-entering them.
 * **`uq_entry_auto_bill_no` stays relaxed** — the two duplicate `SB-GRN` bill numbers are kept, and
   the app's boot skips re-creating the index while duplicates exist. Clean the two rows, then ship
   the promised `app/migrations/0001_*.sql` to restore it.
@@ -313,12 +315,13 @@ Money that leaves with them (all previously excluded from reports anyway): `paym
 `account_transaction −446,114` · `entry qty −17,547.3` · `material_return −35,328` ·
 `waive_off −279.1`.
 
-**One app-side exception you should decide on:** `hard_delete_transaction` hard-deletes Booking and
-DirectSale, but for **Payment** it deliberately keeps the row and marks it void ("financial
-payments are never hard-deleted … preserve the stable source identity, linked (voided) ledger
-entries, waive-off rows and audit references"). If the *no voided rows at all* rule must also hold
-for future deletions, that branch has to change to a real hard delete — a financial-behaviour
-change I did not make unilaterally, because it removes the audit trail for deleted payments.
+**Former app-side exception — now RESOLVED (verified in code 2026-09-10):**
+`hard_delete_transaction` now hard-deletes Booking, DirectSale **and Payment** alike
+(`hard_delete_payment`: reverses the accounting / pending-bill / waive-off effects, deletes the
+generated ledger entries, then removes the payment row; "Policy (owner decision): the database
+holds no voided rows"). The audit trail is written to the append-only `audit_log` /
+`accounting_audit_log` tables — which is where an audit trail belongs, not in a flagged
+transaction row — so the *no voided rows at all* rule holds for future deletions too.
 
 ---
 
@@ -357,11 +360,16 @@ the list is:
 5. ✅ **Void policy** — purged by default; the new database holds no voided data (§3c).
 6. ⬜ **Run `check_template_sync.py`** — the §2.6 template-vs-models check, now one command.
    Re-run it whenever the app's models change (and consider wiring it into CI).
-7. ⬜ **Decide the app-side Payment delete** — `hard_delete_transaction` keeps a voided payment
-   by design; make it a real hard delete if *no voided rows at all* must also hold going forward.
-8. ⬜ **Decide whether old `settings`** (company name, tax rate, bill prefixes) should be carried
-   instead of the template's — currently dropped and flagged `REVIEW`.
-9. ⬜ **Restore `uq_entry_auto_bill_no`** after cleaning the two duplicate `SB-GRN` bill numbers.
+7. ✅ **App-side Payment delete** — now a real hard delete in `hard_delete_payment`
+   (verified 2026-09-10); no voided rows are left by any delete path.
+8. ✅ **Old `settings` policy** — now a decision *in the tool*: `--carry-settings` (GUI
+   checkbox) loads the old file's company settings when the template's settings table is empty;
+   default unchanged (template's kept, old rows flagged `REVIEW` for explicit merge).
+9. ✅ **`uq_entry_auto_bill_no` restoration shipped** —
+   `app/migrations/0001_restore_entry_auto_bill_unique_index.sql` applies automatically on the
+   first start after the two duplicate `SB-GRN` bill numbers are cleaned (operator decision:
+   keep one row per bill number); until then it retries at boot (logged) and the boot helper
+   skips the index with a warning.
 
 ---
 

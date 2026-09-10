@@ -25,6 +25,11 @@ defects D-1, D-2, D-3, D-4, D-5 in MIGRATION_TOOL_PROCEDURE_AUDIT.md:
   T10 purging a voided sale also purges its children (cascade), leaving no
       dangling references
   T11 --keep-voided (purge_voided=False) preserves the archive instead
+  T12 purging a voided DirectSale cascades over DECLARED FK children derived
+      from the schema itself (grn_allocation was missing from the hard-coded
+      cascade list before 2026-09-10 — no orphan allocations may survive)
+  T13 --carry-settings loads the old file's company settings when the
+      template's settings table is empty (default still flags them REVIEW)
   R1  refusal guards still refuse (swapped roles, non-AMS file)
 
 Pure stdlib. Each test builds its fixture from the committed data-lab pair
@@ -394,6 +399,69 @@ class AnotherOldFileTests(unittest.TestCase):
             "COALESCE(CAST(is_void AS INTEGER),0) = 1").fetchone()[0]
         out.close()
         self.assertGreater(voided, 0, "--keep-voided must retain voided rows")
+
+    # ---- T12: purge cascades over DECLARED FK children (schema-derived) ----
+    # 2026-09-10: grn_allocation was missing from the hard-coded cascade list;
+    # declared FK pairs are now derived from PRAGMA foreign_key_list so a
+    # voided DirectSale cannot leave orphan grn_allocation rows behind.
+    def test_purge_cascades_over_declared_fk_children(self):
+        old = self._fixture("t12.db")
+        c = sqlite3.connect(old)
+        row = c.execute(
+            "SELECT ga.sale_id FROM grn_allocation ga "
+            "GROUP BY ga.sale_id ORDER BY ga.sale_id LIMIT 1"
+        ).fetchone()
+        self.assertIsNotNone(row, "fixture needs a sale with GRN allocations")
+        sale_id = row[0]
+        n = c.execute(
+            "SELECT COUNT(*) FROM grn_allocation WHERE sale_id = ?", (sale_id,)
+        ).fetchone()[0]
+        self.assertGreater(n, 0)
+        c.execute("UPDATE direct_sale SET is_void = 1 WHERE id = ?", (sale_id,))
+        c.commit()
+        c.close()
+        res = self._run(old, "t12_out.db")
+        out = sqlite3.connect(self.tmp / "t12_out.db")
+        self.assertIsNone(
+            out.execute("SELECT id FROM direct_sale WHERE id = ?",
+                        (sale_id,)).fetchone(), "voided sale survived")
+        self.assertEqual(
+            out.execute("SELECT COUNT(*) FROM grn_allocation WHERE sale_id = ?",
+                        (sale_id,)).fetchone()[0], 0,
+            "grn_allocation children of the voided sale survived")
+        self.assertEqual(
+            out.execute("SELECT COUNT(*) FROM grn_allocation WHERE sale_id "
+                        "IS NOT NULL AND sale_id NOT IN "
+                        "(SELECT id FROM direct_sale)").fetchone()[0], 0,
+            "dangling grn_allocation left behind by the purge")
+        self.assertEqual(res["status"], "PASS", res["text"])
+        out.close()
+
+    # ---- T13: --carry-settings loads the old company settings --------------
+    def test_carry_settings_moves_company_settings(self):
+        old = self._fixture("t13.db")
+        c = sqlite3.connect(old)
+        cols = [r[1] for r in c.execute("PRAGMA table_info(settings)")]
+        info = {r[1]: r for r in c.execute("PRAGMA table_info(settings)")}
+        usable = [n for n in cols if n != "id" and info[n][4] is None]
+        vals = ["BRANCH 2 CEMENT TRADERS" if n == "company_name" else 0
+                for n in usable]
+        c.execute(
+            'INSERT INTO settings (%s) VALUES (%s)' % (
+                ", ".join('"%s"' % n for n in usable),
+                ", ".join("?" * len(usable))),
+            vals)
+        c.commit()
+        c.close()
+        res = E.run_migration(old, NEW_DEFAULT, out_path=self.tmp / "t13_out.db",
+                              carry_settings=True)
+        self.assertEqual(res["status"], "PASS", res["text"])
+        self.assertTrue(res["carry_settings"]["applied"], res["text"])
+        out = sqlite3.connect(self.tmp / "t13_out.db")
+        rows = out.execute("SELECT company_name FROM settings").fetchall()
+        out.close()
+        self.assertEqual(rows, [("BRANCH 2 CEMENT TRADERS",)],
+                         "the old settings row was not carried into the output")
 
     # ---- R1: refusal guards keep refusing ----------------------------------
     def test_swapped_roles_are_refused(self):

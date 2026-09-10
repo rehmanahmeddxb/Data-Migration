@@ -271,6 +271,7 @@ def build_gui() -> None:
 
     overwrite_var = tk.BooleanVar(value=True)
     purge_var = tk.BooleanVar(value=True)
+    carry_var = tk.BooleanVar(value=False)
     ttk.Checkbutton(
         out_frame, text="Overwrite the output file if it already exists",
         variable=overwrite_var,
@@ -280,6 +281,12 @@ def build_gui() -> None:
         text="Purge voided / cancelled rows (recommended — the new app keeps "
              "no voided data; children are purged with their parents)",
         variable=purge_var,
+    ).pack(anchor="w", pady=(6, 0))
+    ttk.Checkbutton(
+        out_frame,
+        text="Carry the OLD file's company settings (name / tax / bill prefixes) "
+             "when the NEW template has none",
+        variable=carry_var,
     ).pack(anchor="w", pady=(6, 0))
     tk.Label(
         out_frame,
@@ -385,6 +392,7 @@ def build_gui() -> None:
                     out_path=out,
                     overwrite=overwrite_var.get(),
                     purge_voided=purge_var.get(),
+                    carry_settings=carry_var.get(),
                     progress=_progress,
                 )
                 msgs.put(("done", report))
@@ -516,6 +524,7 @@ def run_cli(args: argparse.Namespace) -> int:
             progress=_prog,
             allow_v44_old=getattr(args, "allow_v44_old", False),
             purge_voided=not getattr(args, "keep_voided", False),
+            carry_settings=getattr(args, "carry_settings", False),
         )
     except MigrationError as e:
         print(f"ERROR: {e}", file=sys.stderr)
@@ -558,6 +567,11 @@ def main(argv=None) -> int:
         "--keep-voided", action="store_true",
         help="carry voided/cancelled rows over instead of purging them "
              "(the default is to purge them)",
+    )
+    ap.add_argument(
+        "--carry-settings", action="store_true",
+        help="load the OLD file's settings row when the NEW template's "
+             "settings table is empty",
     )
     args = ap.parse_args(argv)
 

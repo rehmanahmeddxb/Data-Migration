@@ -457,7 +457,7 @@ def clean_all_data(db_path, *, backup: bool = True, backup_dir=None,
 # ---------------------------------------------------------------------------
 def import_snapshot(source_path, target_db_path, *, mode: str = "clean_replace",
                     backup_target: bool = True, backup_dir=None,
-                    include_users: bool = True) -> dict:
+                    include_users: bool = True, require_sidecar: bool = True) -> dict:
     """Load the full data of *source_path* into *target_db_path*.
 
     ``mode="clean_replace"``  (default; the documented full sync)
@@ -473,6 +473,15 @@ def import_snapshot(source_path, target_db_path, *, mode: str = "clean_replace",
     absent from the source abort the import with a clear message (export a
     snapshot from the same schema generation instead).  An automatic backup
     of the target is always taken first unless ``backup_target=False``.
+
+    ``require_sidecar`` (default True) — plain ``.db`` sources must carry the
+    ``RESULT: PASS`` sidecar written by the AMS migration tool
+    (``<name>.db.report.txt`` next to the file) so a quarantined
+    ``*.INCOMPLETE`` run can never be imported by explicit path.  ``.amsdb``
+    snapshots are self-verifying and exempt.  Pass ``require_sidecar=False``
+    (CLI ``--allow-no-sidecar``) for automation that produces its own
+    verification; the app's upload UI passes False because a browser upload
+    is a single file by nature (it keeps its own verify + tamper detection).
     """
     src = Path(source_path).expanduser().resolve()
     tgt = Path(target_db_path).expanduser().resolve()
@@ -485,6 +494,35 @@ def import_snapshot(source_path, target_db_path, *, mode: str = "clean_replace",
         )
     if src == tgt:
         raise FullDbSyncError("Source and target are the same file — refusing.")
+
+    # ---- Sidecar gate: a plain .db must have PROVEN itself (2026-09-10) ----
+    # The migration tool writes <name>.db.report.txt with RESULT: PASS next to
+    # its output, and renames aborted runs to *.INCOMPLETE.  Without this gate
+    # an explicit path could import a partial/crashed file, because the
+    # verification below is measured against the file itself.
+    sidecar_state = "exempt (.amsdb snapshot)"
+    if src.suffix.lower() != ".amsdb" and require_sidecar:
+        sidecar = src.with_name(src.name + ".report.txt")
+        if not sidecar.exists():
+            raise FullDbSyncError(
+                f"Refusing to import {src.name} without its migration report: "
+                f"{sidecar.name} (containing 'RESULT: PASS') was not found next "
+                "to it. Plain .db files are only imported with the sidecar the "
+                "AMS migration tool writes — export an .amsdb snapshot instead, "
+                "or pass --allow-no-sidecar if you verified this file yourself."
+            )
+        try:
+            text = sidecar.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            raise FullDbSyncError(f"Cannot read the sidecar report {sidecar}: {exc}")
+        if "RESULT: PASS" not in text:
+            raise FullDbSyncError(
+                f"Sidecar report {sidecar.name} does not contain 'RESULT: PASS' "
+                "(it reports a REVIEW/FAILED run). Do not import this file — "
+                "read the report and fix the listed reasons, then re-run the "
+                "migration."
+            )
+        sidecar_state = f"verified ({sidecar.name}: RESULT: PASS)"
 
     mode = (mode or "clean_replace").strip().lower()
     if mode not in ("clean_replace", "append"):
@@ -660,6 +698,7 @@ def import_snapshot(source_path, target_db_path, *, mode: str = "clean_replace",
         "imported_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "source_path": str(src),
         "target_path": str(tgt),
+        "sidecar": sidecar_state,
         "backup_path": str(backup_path) if backup_path else None,
         "source_meta": source_meta,
         "tables_shared": len(shared),

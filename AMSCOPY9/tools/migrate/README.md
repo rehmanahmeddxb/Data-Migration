@@ -1,5 +1,17 @@
 # AMS Legacy Data Migration Toolkit
 
+> **Status (2026-09-10): SUPERSEDED — kept for reference.** The live migration
+> path is the stdlib-only `migrate tool/` (repo root) + `full_db_sync/`
+> (SQLite `.db`/`.amsdb` transport — see `docs/FULL_DB_SQLITE_SYNC.md`). This
+> XLSX pipeline is retained because (a) its purge contract is the reference
+> the tool's purge was ported from, and (b) old `ALLEXPORT` workbooks may
+> still need one-off reads. Steps 01–03 need pandas + openpyxl:
+> `pip install -r requirements-migrate.txt` (repo root). Gate 3's baselines
+> (`EXPECTED_TOTALS`) were refreshed 2026-09-10 from the committed clean
+> export and now match it 13/13. The planned opening-state successor
+> (`MIGRATION_AUDIT.md §H`) was **never built** — that document is a
+> proposal, not a record.
+
 Extract → Clean → Transform → Load for the legacy AMS `ALLEXPORT` workbook into a
 fresh application database.  Everything here is pure pandas + stdlib (no app import
 needed for steps 1–3), so it runs on any machine that can open the xlsx.
@@ -27,8 +39,8 @@ then verifies the result three times (legacy file, clean file, migrated DB).
 ## Run order (with gates)
 
 ```bash
-# 0) prerequisites
-python -m venv .venv && .venv/bin/pip install -r requirements.txt
+# 0) prerequisites (pinned in requirements-migrate.txt at the repo root)
+python -m venv .venv && .venv/bin/pip install -r requirements-migrate.txt
 
 # 1) audit the legacy export (read-only). Gate: must print RESULT: PASS.
 .venv/bin/python tools/migrate/01_audit_legacy.py
@@ -52,10 +64,13 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
   ```
 * **App UI (equivalent):** Import & Export → Full Raw Import → choose the
   `ALLEXPORT-CLEAN-<timestamp>.xlsx` file, mode *replace tenant data*.  This is
-  the exact code path the script drives (verified: 24,054 rows, 0 failures).
+  the exact code path the script drives (verified on the committed 17-08 clean
+  file: 24,585 rows, 0 failures).
 
-Do **not** load the original `ALLEXPORT-14-08-2026_05-51PM.xlsx` — it contains
-11,663 rows that must never be transferred (see `MIGRATION_PLAN.md`).
+Do **not** load the original `ALLEXPORT-14-08-2026_05-51PM.xlsx` (or any
+pre-purge ALLEXPORT) — it contains rows (voided / cancelled / orphan) that
+must never be transferred. The committed clean artifact is
+`ALLEXPORT-CLEAN-17-08-2026.xlsx`.
 
 ### 5) Enrich + audit the migrated database
 
@@ -86,20 +101,29 @@ sqlite3 instance/ahmed_cement.db < tools/migrate/post_import_enrichment.sql
 4. **Dangling references:** `booking_allocation` rows whose `booking_item_id`
    does not exist in the legacy data are dropped (legacy: 129 rows).
 
-## What the gates guarantee (verified on the 2026-08-14 export)
+## What the gates guarantee (verified on the committed 2026-08-17 export)
+
+Corrected 2026-09-10 to the committed artifacts (the old table described the
+un-committed 2026-08-14 export):
 
 | Check | Result |
 |---|---|
-| Rows in source / kept / removed | 35,717 / 24,054 / 11,663 |
+| Rows in source / kept / removed | 36,272 / 24,585 / 11,687 (committed `purge_report.json`) |
+| Data rows in committed clean workbook | 24,585 (`ALLEXPORT-CLEAN-17-08-2026.xlsx`, 51 sheets) |
 | Voided rows remaining after clean | 0 |
 | Cancelled entries remaining after clean | 0 |
 | Dangling FKs after clean | 0 |
 | Account balance vs ledger (12 accounts) | 0 mismatches |
 | Material total vs entry net (66 materials) | 0 mismatches |
 | Duplicate natural keys | 0 |
-| Bill counters vs max sequence in data | all counters = max+1 (safe) |
-| Fresh-DB import of clean file | 24,054 rows, 0 failed |
-| Post-import SQL audit | PASS (all checks) |
+| Fresh-DB import of clean file | 24,585 rows, 0 failed |
+| Post-import SQL audit | PASS (all checks — `EXPECTED_TOTALS` refreshed 2026-09-10) |
+
+Note: `purge_report.json`'s per-rule counts (void 11,236 + cancel 70 +
+cascade 232 + missing-parent 165 = 11,703) exceed `rows_removed` (11,687) by
+16 rows that were removed by two rules at once — the report counts removals,
+not rule hits. The SQLite tool's purge report (2026-09-10) counts each row
+once.
 
 ## Tuning
 

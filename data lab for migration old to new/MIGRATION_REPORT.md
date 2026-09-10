@@ -6,6 +6,21 @@
 **Status:** ✅ COMPLETE & VERIFIED (no data loss, no broken references)
 **Owner/contact:** Rehman Ahmed (repo owner)
 
+> **STATUS (2026-09-10):** this report records the 2026-09-09 event and
+> remains the history of record. Two things have changed since:
+> 1. `FIRST CLASS DATA/migrate.py` is now a wrapper around the packaged
+>    **"migrate tool"** (repo root) with all audit fixes (D-1…D-6, G1…G5), and
+>    the committed output `ahmed_cement_migrated.db` was **regenerated with
+>    the no-void purge policy** — 29,179 rows (this report's §8 counts, e.g.
+>    `entry 5259` / `payment 917`, are the pre-purge numbers; post-purge:
+>    `entry 5204`, `payment 904`, `account_transaction 1046`, `waive_off 421`,
+>    `material_return(_item) 81/110` — 87 voided/cancelled rows removed by
+>    policy). The pre-policy archive is reproducible with `--keep-voided`.
+> 2. The §11 security TODOs are addressed: the secret key was rotated and the
+>    key files + duplicate data copies were removed from git tracking
+>    (`.gitignore`); **purging the old key from git *history* still requires a
+>    one-time `git filter-repo` on `main`** (manual step).
+
 ---
 
 ## 0. How to read this report (future-work tracking)
@@ -162,13 +177,22 @@ output goes to `FIRST CLASS DATA/ahmed_cement_migrated.db`.
 
 ## 11. TODO / Open items (tracking for future)
 - [ ] **Confirm seed-row decision (Section 7).** Keep excluded fresh-DB seed or merge it?
-- [ ] **secret_key.txt security.** It is committed in this repo and the repo is open/public.
-      Add to `.gitignore`, purge from git history, and rotate the key (update app config + re-encrypt
-      any encrypted data). This was raised earlier and not yet actioned.
-- [ ] **Add a `.gitignore`** for the large SQLite binaries / backups if the repo should stay light.
+- [x] **secret_key.txt security** — *addressed 2026-09-10 (partial):* the key was **rotated**
+      (new random value in all copies) and the key files + duplicate data copies were **removed
+      from git tracking** (root `.gitignore`). ⬜ *Still manual:* purge the **old** key value from
+      git *history* with a one-time `git filter-repo` on `main` (destructive to history — do it
+      deliberately, then force-push and rotate again if the repo is public).
+- [x] **Add a `.gitignore`** — *done 2026-09-10:* root `.gitignore` now excludes `*secret_key*`,
+      SQLite journal sidecars (`*.db-wal/-shm/-journal`), `*.INCOMPLETE` quarantine files, and the
+      duplicate backup/refresh data copies (the regression-suite fixture pair stays tracked).
 - [ ] **Production engine.** Consider PostgreSQL/MySQL for concurrency + stronger constraint enforcement
       (the duplicate-`auto_bill_no` defect went unnoticed precisely because SQLite enforces little).
-- [ ] **Automate verifications** in CI: row-count diffs, `integrity_check`, logical FK checks.
+      Note: the restoration migration `AMSCOPY9/app/migrations/0001_restore_entry_auto_bill_unique_index.sql`
+      now ships and applies once the 2 duplicate `SB-GRN` bill numbers are cleaned.
+- [x] **Automate verifications** — *in place since 2026-09-10:* `migrate tool/test_migrate_engine.py`
+      (18 stdlib tests: counts, values, indexes, FK orphans, purge cascade, failure quarantine) and
+      `AMSCOPY9/tests/test_full_db_sidecar.py` (6 stdlib tests for the import sidecar gate) — wire
+      them into CI whenever a CI runner exists.
 - [ ] **Scheduled backups** (DB copy + `VACUUM`); keep pre-migration backup until next successful cutover.
 
 ## 12. File inventory (this folder)

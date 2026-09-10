@@ -57,3 +57,12 @@ Write commands (`clean`, `import`) require `--confirm`.
 * **Verification**: every import ends with `PRAGMA integrity_check`,
   `PRAGMA foreign_key_check`, and per-table row-count parity vs the source;
   every export ends with a `verify_snapshot` of the produced file.
+* **Sidecar gate (2026-09-10)**: importing a **plain `.db`** source (CLI
+  flow) requires the `.report.txt` sidecar with `RESULT: PASS` next to the
+  file — the one the AMS migration tool writes — so a quarantined
+  `*.INCOMPLETE` run cannot be imported by explicit path.  `.amsdb` snapshots
+  are self-verifying and exempt; `--allow-no-sidecar` bypasses the gate for
+  automation, and the app's upload UI passes `require_sidecar=False` because
+  a browser upload is a single file by nature (it keeps its own admin-only +
+  verify + backup protections).  The import report records the outcome under
+  `"sidecar"`.

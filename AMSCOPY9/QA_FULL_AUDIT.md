@@ -6,6 +6,21 @@
 **Audit dated:** 2026-08-25 (PKT)
 **Baseline:** existing suite `pytest` = **64 passed**. That suite is NOT accepted as proof (see §G).
 
+> **STATUS (2026-09-10, re-verified in code):** the audit's findings drove the
+> PRED-fix PRs of late Aug 2026. Spot-checks of the current code:
+> **PRED-001** fixed — `billing.get_next_bill_no` is now write-lock atomic;
+> **PRED-002** fixed — future-dated money movements are rejected in
+> `payments_crud.py`; **PRED-003/004** mitigated — `ensure_open_khata_client()`
+> seeds a real `OPEN-KHATA` client master at boot, so Open-Khata receivables
+> are keyable and settleable; **PRED-005** fixed — `_protect_against_csrf`
+> covers every mutating endpoint; **PRED-009** fixed — the full wipe deletes
+> `direct_sale_item` (or nulls `grn_item_id`) before `grn_item`.
+> **Not re-verified in that pass:** PRED-006/007 (idempotency replay
+> semantics), PRED-008 (reconciled-period guard on payment *create*),
+> PRED-011 (route shadow), PRED-013 (`check_bill` API) and the M1–M3 test
+> blind spots — re-run the harness (`tools/predator_truth_engine.py --check`
+> + the `.qa` scenarios) to close the record.
+
 ---
 
 ## 0. INDEPENDENT TRUTH SOURCES BUILT FOR THIS AUDIT

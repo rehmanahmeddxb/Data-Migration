@@ -97,10 +97,13 @@ Say you add a `Vendor` + `VendorPayment` module next month:
   "upload a .db file" check an exact, deterministic way to detect which
   schema generation a file belongs to — the groundwork for a one-click
   old-format import later.
-* The known relaxed unique index `uq_entry_auto_bill_no` should be restored
-  with a future `000N_*.sql` migration **after** the duplicate
-  `entry.auto_bill_no` values (`SB-GRN-1024`, `SB-GRN-1042`) are cleaned up,
-  so the migration cannot fail on the live data.
+* The known relaxed unique index `uq_entry_auto_bill_no` **is** now shipped
+  as `app/migrations/0001_restore_entry_auto_bill_unique_index.sql`.  It
+  applies automatically on the first start **after** the duplicate
+  `entry.auto_bill_no` values (`SB-GRN-1024`, `SB-GRN-1042` — entry ids
+  9084/10116 and 9830/10117) are cleaned up; until then it retries at every
+  boot (logged, boot not blocked) and the boot helper
+  `_ensure_auto_bill_unique_indexes()` skips the index with a warning.
 
 ## 6. Configuration
 

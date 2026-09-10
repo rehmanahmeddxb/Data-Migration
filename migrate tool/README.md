@@ -13,7 +13,7 @@ created.
 | `migrate_tool.py` | The GUI app (double-click or `python migrate_tool.py`) |
 | `migrate_engine.py` | The migration logic (pure Python standard library — sqlite3 only) |
 | `check_template_sync.py` | Pre-flight: is the v4.4 template still in sync with the app's models? |
-| `test_migrate_engine.py` | Regression suite (13 stdlib tests, ~10 s) |
+| `test_migrate_engine.py` | Regression suite (18 stdlib tests, ~14 s) |
 | `run_tool.bat` | Windows double-click launcher |
 | `drop/` | *(auto-created)* put any database file here — the app detects it |
 | `output/` | *(auto-created)* default home for the migrated result + reports |
@@ -49,6 +49,13 @@ returns **identical results before and after** the purge.
 
 Run with `--keep-voided` (or untick the *Purge voided / cancelled rows* box in
 the GUI) if you ever need a bit-for-bit archive instead.
+
+The cascade set is **complete by construction** (2026-09-10): besides the
+hard-coded rules for the polymorphic `source_id` links, every *declared*
+foreign key of the v4.4 schema (e.g. `grn_allocation → direct_sale /
+direct_sale_item / grn_item`) is derived automatically from
+`PRAGMA foreign_key_list`, so children of purged parents can never be left
+dangling even when the schema grows new child tables.
 
 ## Before you migrate — the 30-second pre-flight
 
@@ -120,9 +127,15 @@ separate folders with Browse….)
 ## Headless / command-line (same engine, for automation or servers)
 
 ```bash
-python migrate_tool.py --cli --old OLD.db --new NEW_v44.db [--out result.db]
+python migrate_tool.py --cli --old OLD.db --new NEW_v44.db [--out result.db] \
+    [--keep-voided] [--carry-settings] [--allow-v44-old] [--no-overwrite]
 python migrate_tool.py --scan        # list files detected in this folder/drop
 ```
+
+`--carry-settings` loads the OLD file's `settings` row (company name / tax /
+bill prefixes) when the NEW template's settings table is empty — use it for a
+real business migration so you don't re-enter the company settings (default:
+keep the template's settings and flag the old rows `REVIEW`).
 
 `--allow-v44-old` is the only escape hatch: by default the tool **refuses** an
 OLD file that already carries v4.4 markers, because that is an output of a
@@ -139,6 +152,13 @@ In the AMS application open **Import/Export Center → Full Database Snapshot
 sync — clean all data first"**. The app takes its own backup, loads the file
 and verifies parity again. (That is the exact path the last AMS refresh used,
 with `verification: PASS` on all 69 tables.) Or headless:
+
+> **Sidecar rule (2026-09-10):** when importing a **plain `.db`** via the CLI,
+> the app importer now *requires* the `.report.txt` sidecar with
+> `RESULT: PASS` to sit next to the file — exactly the one this tool writes —
+> so a quarantined `*.INCOMPLETE` run can never be imported by explicit path.
+> `.amsdb` snapshots are self-verifying and exempt; `--allow-no-sidecar`
+> exists for automation that verifies on its own.
 
 ```bash
 python3 -m full_db_sync export --db <migrated>.db --out AMS.amsdb

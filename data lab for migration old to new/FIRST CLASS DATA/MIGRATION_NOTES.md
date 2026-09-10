@@ -1,11 +1,21 @@
 # Data Migration — Old data → new v44 schema
 
-**Date:** 2026-09-09
-**Source (old):** `ahmed_cement.db`  (production data, SQLite, ~7.6 MB)
-**Schema (new):** `NewData/ahmed_cement_v44_fresh.db`  (v44 fresh install + seed)
-**Result:** `FIRST CLASS DATA/ahmed_cement_migrated.db`  (this folder)
-**Script:** `FIRST CLASS DATA/migrate.py`  (re-runnable, idempotent)
+**Date:** 2026-09-09  
+**Source (old):** `ahmed_cement.db`  (production data, SQLite, ~7.6 MB)  
+**Schema (new):** `NewData/ahmed_cement_v44_fresh.db`  (v44 fresh install + seed)  
+**Result:** `FIRST CLASS DATA/ahmed_cement_migrated.db`  (this folder)  
+**Script:** `FIRST CLASS DATA/migrate.py`  (re-runnable, idempotent)  
 **Report:** `FIRST CLASS DATA/migration_report.txt`
+
+> **STATUS (2026-09-10):** `migrate.py` is now a thin wrapper around the
+> packaged **"migrate tool"** engine (same inputs / output / report), and the
+> committed output was **regenerated with the current no-void purge policy**:
+> it now holds **29,179 rows** (the 2026-09-09 file held 29,266 including 87
+> voided/cancelled rows, which the policy removes: 61 `is_void=1` + 24
+> cancelled `entry` + 2 cascaded children).  Everything below remains true;
+> wherever a row count is quoted, the regenerated (post-purge) numbers apply.
+> Re-run any time with the same command — the original pre-policy output can
+> be reproduced with the tool's `--keep-voided` flag.
 
 ---
 
