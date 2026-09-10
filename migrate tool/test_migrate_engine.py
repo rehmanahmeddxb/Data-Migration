@@ -13,6 +13,13 @@ defects D-1, D-2, D-3, D-4, D-5 in MIGRATION_TOOL_PROCEDURE_AUDIT.md:
       full index parity with the v4.4 template
   T5  mid-run crash -> *.report.txt written with RESULT: FAILED and the
       partial output quarantined as *.INCOMPLETE (never importable)
+  T6  an OLD file that already carries v4.4 markers (an output of a previous
+      run) is refused — re-migrating re-maps user ids and corrupts audit
+      attribution (G1); --allow-v44-old still permits it
+  T7  a NOT NULL column the old file cannot fill is detected BEFORE the load
+      and named in the error; nothing is left as a usable output (G3)
+  T8  value parity catches a value that changed during the copy, so a
+      mis-mapped column can no longer print RESULT: PASS (G4)
   R1  refusal guards still refuse (swapped roles, non-AMS file)
 
 Pure stdlib. Each test builds its fixture from the committed data-lab pair
@@ -248,6 +255,65 @@ class AnotherOldFileTests(unittest.TestCase):
         report = q.with_suffix(q.suffix + ".report.txt")
         self.assertTrue(report.exists(), "failure report must be written")
         self.assertIn("RESULT: FAILED", report.read_text(encoding="utf-8"))
+
+    # ---- T6: an already-migrated (v4.4) OLD file is refused (G1) -----------
+    def test_already_migrated_old_file_is_refused(self):
+        first = self._run(self._fixture("t6_src.db"), "t6_first.db")
+        self.assertEqual(first["status"], "PASS", first["text"])
+        migrated = self.tmp / "t6_first.db"
+        with self.assertRaises(E.MigrationError) as ctx:
+            E.run_migration(migrated, NEW_DEFAULT, out_path=self.tmp / "t6_second.db")
+        msg = str(ctx.exception)
+        self.assertIn("already carries v4.4", msg)
+        self.assertIn("corrupts audit-log attribution", msg)
+        # no half-done second output
+        self.assertFalse((self.tmp / "t6_second.db").exists())
+
+    def test_allow_v44_old_flag_overrides_the_guard(self):
+        first = self._run(self._fixture("t6b_src.db"), "t6b_first.db")
+        self.assertEqual(first["status"], "PASS", first["text"])
+        res = E.run_migration(self.tmp / "t6b_first.db", NEW_DEFAULT,
+                              out_path=self.tmp / "t6b_second.db",
+                              allow_v44_old=True)
+        self.assertIn(res["status"], ("PASS", "REVIEW"))
+
+    # ---- T7: NOT NULL column the old file cannot fill (G3) -----------------
+    def test_missing_not_null_column_is_reported_before_loading(self):
+        old = self._fixture("t7.db")
+        c = sqlite3.connect(old)
+        c.execute('ALTER TABLE client DROP COLUMN code')   # NOT NULL in v4.4
+        c.commit()
+        c.close()
+        with self.assertRaises(E.MigrationError) as ctx:
+            self._run(old, "t7_out.db")
+        msg = str(ctx.exception)
+        self.assertIn("client.code", msg)
+        self.assertIn("NOT NULL", msg)
+        self.assertIn("nothing was written", msg)
+        # the run never started, so no usable output is lying around
+        self.assertFalse((self.tmp / "t7_out.db").exists())
+
+    # ---- T8: value parity catches a value changed during the copy (G4) -----
+    def test_value_parity_detects_a_changed_value(self):
+        old = self._fixture("t8.db")
+        out_path = self.tmp / "t8_out.db"
+        orig = E._swap_table
+
+        def sneaky(con, t):
+            res = orig(con, t)
+            if t == "client":
+                # simulate a silent mis-map / value corruption during the copy
+                con.execute("UPDATE client SET name = name || '!'")
+            return res
+
+        E._swap_table = sneaky
+        try:
+            res = E.run_migration(old, NEW_DEFAULT, out_path=out_path)
+        finally:
+            E._swap_table = orig
+        self.assertEqual(res["status"], "REVIEW", res["text"])
+        self.assertTrue(any("value mismatch" in i for i in res["issues"]),
+                        res["issues"])
 
     # ---- R1: refusal guards keep refusing ----------------------------------
     def test_swapped_roles_are_refused(self):

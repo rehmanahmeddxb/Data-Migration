@@ -17,6 +17,7 @@ is a brand-new file.
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -403,12 +404,85 @@ def _duplicate_scan(con: sqlite3.Connection) -> list:
     return found
 
 
+def _required_column_problems(con: sqlite3.Connection, tables: list) -> list:
+    """New-schema columns that would break the load, detected *before* loading.
+
+    A target column that is ``NOT NULL`` with no default and that the old file
+    does not carry (or carries entirely NULL) makes the copy abort with a raw
+    ``sqlite3.IntegrityError: NOT NULL constraint failed: tmp_<t>.<col>`` in the
+    middle of the run — after dozens of tables have already been swapped.  Catch
+    it up-front so the operator gets an actionable message instead (G3).
+
+    Returns a list of ``(table, column, reason)`` tuples.
+    """
+    problems = []
+    for t in tables:
+        out_info = con.execute(f'PRAGMA table_info({_q(t)})').fetchall()
+        old_info = con.execute(f'PRAGMA old.table_info({_q(t)})').fetchall()
+        if not old_info:
+            continue
+        old_cols = {r[1] for r in old_info}
+        try:
+            old_rows = con.execute(f'SELECT COUNT(*) FROM old.{_q(t)}').fetchone()[0]
+        except sqlite3.OperationalError:
+            continue
+        if not old_rows:
+            continue  # nothing to copy -> nothing can violate NOT NULL
+        for cid, name, ctype, notnull, dflt, pk in out_info:
+            if not notnull or pk or dflt is not None:
+                continue
+            if name not in old_cols:
+                problems.append((t, name, "column does not exist in the old file"))
+                continue
+            try:
+                non_null = con.execute(
+                    f'SELECT COUNT(*) FROM old.{_q(t)} WHERE {_q(name)} IS NOT NULL'
+                ).fetchone()[0]
+            except sqlite3.OperationalError:
+                continue
+            if non_null == 0:
+                problems.append((t, name, f"NULL in all {old_rows} old row(s)"))
+    return problems
+
+
+def _table_fingerprint(con: sqlite3.Connection, table: str, cols: list,
+                       prefix: str = "", user_map: dict = None) -> tuple:
+    """Order-independent md5 over every copied value of a table.
+
+    Row counts prove *how many* rows arrived; this proves *which values*
+    arrived.  Two tables with the same cardinality but a mis-mapped column
+    (or a value silently defaulted by SQLite) get different fingerprints (G4).
+
+    ``user_map`` applies the documented old-id -> new-id user remap to the
+    user-reference columns first, so the *only* transformation the migration
+    performs is treated as expected (pass it for the OLD side only).
+    """
+    h = hashlib.md5()
+    if not cols:
+        return 0, h.hexdigest()
+    col_csv = ", ".join(_q(c) for c in cols)
+    remap_at = [i for i, c in enumerate(cols) if c in USER_REF_COLS]
+    rows = []
+    for r in con.execute(f'SELECT {col_csv} FROM {prefix}{_q(table)}'):
+        vals = list(r)
+        if user_map and remap_at:
+            for i in remap_at:
+                v = vals[i]
+                if v is not None and v in user_map:
+                    vals[i] = user_map[v]
+        rows.append(repr(tuple(vals)))
+    rows.sort()
+    for r in rows:
+        h.update(r.encode("utf-8", "surrogatepass"))
+    return len(rows), h.hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
 def run_migration(old_path, new_path, out_path=None, overwrite=True,
-                  progress=None) -> dict:
+                  progress=None, allow_v44_old: bool = False) -> dict:
     """Migrate old database data into the new v4.4 schema file.
 
     Returns a dict report: status in {PASS, REVIEW}, ok (bool),
@@ -474,6 +548,22 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             "cash_day_account_position). This tool migrates INTO a fresh v4.4 AMS "
             "database — pick that file as NEW."
         )
+    # G1: an OLD file that already carries v4.4 markers is, in practice, an
+    # output of a previous run (or the fresh template itself).  Migrating it a
+    # second time is NOT a no-op: the user merge appends every old user at
+    # max(id)+1 again and remaps user_id/created_by_id a second time, which
+    # silently re-points audit rows at the wrong person (measured on the real
+    # data: 785 of 1,630 audit_log rows changed owner, and users duplicated as
+    # 'Admin_legacy_legacy').  Refuse unless the caller opts in explicitly.
+    if info_old["looks_v44"] and not allow_v44_old:
+        raise MigrationError(
+            f"The OLD file ({old.name}) already carries v4.4 schema markers — it "
+            "looks like the output of a previous migration, not a legacy file. "
+            "Running it again is not idempotent: users are merged a second time "
+            "and every user_id/created_by_id reference is remapped again, which "
+            "corrupts audit-log attribution. Pick the original legacy database as "
+            "OLD. (Override only if you know what you are doing: --allow-v44-old.)"
+        )
 
     if out_path is None:
         out_path = default_out_path(new, old)
@@ -521,6 +611,23 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             say(f"OUT (result)  : {out}")
             say(f"old tables    : {len(old_tables)}   new-schema tables: {len(out_tables)}")
             say("")
+
+            # ---- pre-flight: columns that would abort the load mid-run ------
+            # G3: a NOT NULL target column the old file cannot fill used to blow
+            # up half-way through with a raw SQLite error.  Name it up-front.
+            to_load = [t for t in shared if t not in KEEP_FROM_NEW]
+            problems = _required_column_problems(con, to_load)
+            if problems:
+                con.close()
+                detail = "; ".join(f"{t}.{c} ({why})" for t, c, why in problems[:8])
+                raise MigrationError(
+                    f"The old file cannot fill {len(problems)} NOT NULL column(s) "
+                    f"of the new schema: {detail}"
+                    + (" …" if len(problems) > 8 else "")
+                    + ". Back-fill them in the old file (or give the column a "
+                    "default in the v4.4 template) and run again — the load was "
+                    "not started, so nothing was written."
+                )
 
             # ---- business tables: replace with every old row ---------------
             rows_detail = []
@@ -691,6 +798,66 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
             else:
                 say("duplicate scan  : none — every remaining unique index holds")
 
+            # ---- value parity (G4) ----------------------------------------
+            # Row counts prove HOW MANY rows arrived; this proves WHICH VALUES
+            # arrived. A mis-mapped column with the same cardinality used to
+            # sail through every gate and still print RESULT: PASS.
+            say("")
+            say("=== VALUE PARITY (every copied value, old vs migrated) ===")
+            value_mismatch = []
+            fp_tables = 0
+            for t in shared:
+                if t in KEEP_FROM_NEW or t == "user":
+                    continue
+                old_cols = [r[1] for r in con.execute(
+                    f'PRAGMA old.table_info({_q(t)})')]
+                inter = [c for c in old_cols if c in _table_cols(con, t)]
+                if not inter:
+                    continue
+                fp_tables += 1
+                a = _table_fingerprint(con, t, inter, prefix="old.", user_map=umap)
+                b = _table_fingerprint(con, t, inter)
+                if a != b:
+                    value_mismatch.append(f"{t} (old {a[0]} rows vs out {b[0]} rows)")
+                    say(f"  MISMATCH {t}: old={a[0]}/{a[1][:8]} out={b[0]}/{b[1][:8]}")
+            if value_mismatch:
+                say(f"value parity    : MISMATCH -> {value_mismatch[:5]}")
+            else:
+                say(f"value parity    : identical — {fp_tables} tables, every "
+                    "copied value matches the old file")
+            say("  (user excluded: it is merged, not copied — see [MERGE] above)")
+
+            # ---- new-schema columns that arrive NULL (G2) ------------------
+            filled_null = []
+            for t in shared:
+                if t in KEEP_FROM_NEW:
+                    continue
+                old_cols = {r[1] for r in con.execute(
+                    f'PRAGMA old.table_info({_q(t)})')}
+                new_only = [c for c in _table_cols(con, t) if c not in old_cols]
+                if not new_only:
+                    continue
+                total = con.execute(f'SELECT COUNT(*) FROM {_q(t)}').fetchone()[0]
+                if not total:
+                    continue
+                for c in new_only:
+                    nulls = con.execute(
+                        f'SELECT COUNT(*) FROM {_q(t)} WHERE {_q(c)} IS NULL'
+                    ).fetchone()[0]
+                    if nulls == total:
+                        filled_null.append(f"{t}.{c}")
+            if filled_null:
+                say("")
+                say("=== NEW-SCHEMA COLUMNS FILLED NULL (informational) ===")
+                say(f"  {len(filled_null)} column(s) exist in v4.4 but not in the old "
+                    "file, so every migrated row is NULL there:")
+                for c in filled_null[:12]:
+                    say(f"    - {c}")
+                if len(filled_null) > 12:
+                    say(f"    … and {len(filled_null) - 12} more")
+                say("  Not an error: the AMS app back-fills the ones it needs on its")
+                say("  next start (e.g. _ensure_account_classification_columns).")
+
             say("")
             say("=== FOREIGN KEY ORPHAN CHECK ===")
             orphan_fk = []
@@ -742,9 +909,32 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                     + (f" ({len(relaxed_names)} relaxed by design)" if relaxed_names else ""))
 
             say("")
+            say("=== NEXT STEPS ===")
+            say("  1. Only this file with 'RESULT: PASS' may be imported. A run that")
+            say("     aborted leaves <name>.INCOMPLETE — never import that.")
+            say("  2. Load it through the app's importer (Import/Export Center ->")
+            say("     Full Database Snapshot -> Import, mode 'Full sync'), or headless:")
+            say("       python3 -m full_db_sync export --db <this file> --out AMS.amsdb")
+            say("       python3 -m full_db_sync verify --db AMS.amsdb")
+            say("       python3 -m full_db_sync import --source AMS.amsdb \\")
+            say("               --db instance/ahmed_cement_v44_fresh.db --confirm")
+            say("  3. Before the app's FIRST start after the import, delete")
+            say("     instance/health_snapshot.json (or start once with")
+            say("     ALLOW_DB_DROP=1). The startup data-loss guard compares row")
+            say("     counts against that snapshot and refuses to start when they")
+            say("     drop by >= 50 rows or below 80%.")
+            say("  4. That first start back-fills the new v4.4 columns listed above")
+            say("     (account classification, counters, Open-Khata client, indexes).")
+
+            say("")
             issues = []
             if mismatches:
                 issues.append(f"count mismatches: {mismatches}")
+            if value_mismatch:
+                issues.append(
+                    "value mismatch — copied values differ from the old file: "
+                    + ", ".join(value_mismatch[:6])
+                )
             if not integrity_ok:
                 issues.append("integrity check failed")
             if fk:
@@ -817,6 +1007,11 @@ def run_migration(old_path, new_path, out_path=None, overwrite=True,
                 "relaxed_indexes": relaxed_global,
                 "warnings": classify_warnings,
                 "issues": issues,
+                "value_parity": {
+                    "tables_checked": fp_tables,
+                    "mismatches": value_mismatch,
+                },
+                "new_columns_filled_null": filled_null,
                 "elapsed_seconds": round(time.time() - started, 2),
                 "text": text,
             }
@@ -884,6 +1079,11 @@ if __name__ == "__main__":
     ap.add_argument("--new", required=True, help="new v4.4 template database file")
     ap.add_argument("--out", help="output migration file (default: next to NEW)")
     ap.add_argument("--no-overwrite", action="store_true")
+    ap.add_argument(
+        "--allow-v44-old", action="store_true",
+        help="permit an OLD file that already carries v4.4 markers (experts only:"
+             " re-migrating re-maps user ids and corrupts audit attribution)",
+    )
     args = ap.parse_args()
 
     def _prog(pct, msg):
@@ -895,6 +1095,7 @@ if __name__ == "__main__":
             out_path=args.out,
             overwrite=not args.no_overwrite,
             progress=_prog,
+            allow_v44_old=args.allow_v44_old,
         )
         _print_summary(report)
         sys.exit(0 if report["ok"] else 3)

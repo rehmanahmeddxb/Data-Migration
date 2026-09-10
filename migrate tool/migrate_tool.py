@@ -506,6 +506,7 @@ def run_cli(args: argparse.Namespace) -> int:
             out_path=Path(args.out) if args.out else None,
             overwrite=not args.no_overwrite,
             progress=_prog,
+            allow_v44_old=getattr(args, "allow_v44_old", False),
         )
     except MigrationError as e:
         print(f"ERROR: {e}", file=sys.stderr)
@@ -540,6 +541,10 @@ def main(argv=None) -> int:
     ap.add_argument("--new", help="new v4.4 template database file (cli)")
     ap.add_argument("--out", help="output migration file (cli)")
     ap.add_argument("--no-overwrite", action="store_true", help="refuse to overwrite output (cli)")
+    ap.add_argument(
+        "--allow-v44-old", action="store_true",
+        help="permit an OLD file that already carries v4.4 markers (experts only)",
+    )
     args = ap.parse_args(argv)
 
     if args.cli or not _tk_available():

@@ -12,12 +12,25 @@ created.
 |---|---|
 | `migrate_tool.py` | The GUI app (double-click or `python migrate_tool.py`) |
 | `migrate_engine.py` | The migration logic (pure Python standard library — sqlite3 only) |
+| `check_template_sync.py` | Pre-flight: is the v4.4 template still in sync with the app's models? |
+| `test_migrate_engine.py` | Regression suite (13 stdlib tests, ~10 s) |
 | `run_tool.bat` | Windows double-click launcher |
 | `drop/` | *(auto-created)* put any database file here — the app detects it |
 | `output/` | *(auto-created)* default home for the migrated result + reports |
 
 No third-party packages are needed — just Python 3 (with tkinter, which ships
 with the normal python.org Windows installer).
+
+## Before you migrate — the 30-second pre-flight
+
+The tool copies the old rows into whatever columns the **template** has, so the
+run only proves "old → output", never "output → what the app expects today".
+Check the template first:
+
+```bash
+python3 "check_template_sync.py" --template <your v4.4 template>.db
+# IN SYNC → safe to migrate.  DRIFT → rebuild the template first.
+```
 
 ## How to use (GUI)
 
@@ -54,11 +67,15 @@ with the normal python.org Windows installer).
    exact unique index(es) the old data violates are relaxed (reported in the
    log); every other unique index is re-created and verified.
 6. **Verification is automatic**: `PRAGMA integrity_check`, per-table parity
-   (old count → migrated count → expected count), FK orphan check, logical
-   user-id check and a full duplicate scan. The run finishes with
-   `RESULT: PASS` only when all checks are clean.
+   (old count → migrated count → expected count), **value parity** (every copied
+   value compared with the source, so a mis-mapped column cannot pass), index
+   parity, FK orphan check, logical user-id check and a full duplicate scan.
+   The run finishes with `RESULT: PASS` only when all checks are clean.
 7. Outputs: `<name>_migrated.db`, `<name>_migrated.db.report.txt` (human
-   report) and `.report.json` (machine summary).
+   report) and `.report.json` (machine summary). The report also lists
+   **new-schema columns that arrive NULL** (v4.4 columns the old file never
+   had — the app back-fills the ones it needs on its first start) and a
+   **NEXT STEPS** block for loading the result.
 
 ## If a file is put into the folder
 
@@ -76,6 +93,11 @@ python migrate_tool.py --cli --old OLD.db --new NEW_v44.db [--out result.db]
 python migrate_tool.py --scan        # list files detected in this folder/drop
 ```
 
+`--allow-v44-old` is the only escape hatch: by default the tool **refuses** an
+OLD file that already carries v4.4 markers, because that is an output of a
+previous run — migrating it again merges the users a second time and re-maps
+`user_id` twice, which silently re-points audit rows at the wrong person.
+
 Exit code: `0` = PASS, `3` = REVIEW (verification found an issue — read the
 report), `2` = input error.
 
@@ -85,7 +107,24 @@ In the AMS application open **Import/Export Center → Full Database Snapshot
 (.db) → Import**, select the produced `*_migrated.db` and use mode **"Full
 sync — clean all data first"**. The app takes its own backup, loads the file
 and verifies parity again. (That is the exact path the last AMS refresh used,
-with `verification: PASS` on all 69 tables.)
+with `verification: PASS` on all 69 tables.) Or headless:
+
+```bash
+python3 -m full_db_sync export --db <migrated>.db --out AMS.amsdb
+python3 -m full_db_sync verify --db AMS.amsdb
+python3 -m full_db_sync import --source AMS.amsdb \
+        --db instance/ahmed_cement_v44_fresh.db --confirm
+```
+
+**Then, before the app's first start after the import**, delete
+`instance/health_snapshot.json` (or start once with `ALLOW_DB_DROP=1`). The
+startup data-loss guard compares row counts against that snapshot and refuses
+to start when they drop by ≥ 50 rows or below 80 % — which a smaller/older
+legacy file legitimately does. (The Import screen now refreshes that baseline
+automatically; this is the fallback for the headless path.)
+
+That first start also back-fills the new v4.4 columns the migration left NULL
+(account classification, counters, Open-Khata client, performance indexes).
 
 ## Safety notes
 
