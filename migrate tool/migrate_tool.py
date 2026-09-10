@@ -18,16 +18,27 @@ folder (or its "drop" subfolder) is detected automatically and offered in
 the dropdowns below. The "output" subfolder is never scanned.
 
 Run:
-    python migrate_tool.py            (GUI)
+    python migrate_tool.py            (GUI, when a display exists)
     python migrate_tool.py --cli --old OLD.db --new NEW.db [--out OUT.db]
                                       (headless, same engine)
-Only the Python standard library is needed (tkinter + sqlite3).
+    python migrate_tool.py --gui      (insist on the GUI; fail if no display)
+    python migrate_tool.py --no-gui   (never open a window — ask instead)
+
+With no display available (Termux/Android, SSH, a container, CI) the tool does
+NOT crash on tkinter: it falls back to the headless mode and, when run from a
+terminal, asks for the two files instead.
+
+Nothing is installed with pip — the standard library is all it needs
+(sqlite3 for the work, tkinter only for the optional window). On Termux the
+GUI additionally needs `pkg install python-tkinter` plus an X server; the
+headless mode needs neither. See README.md, "Running on Android / Termux".
 """
 from __future__ import annotations
 
 import argparse
 import os
 import queue
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -95,6 +106,165 @@ def _open_folder(path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# GUI availability — "tkinter imports" is NOT the same as "there is a display"
+# ---------------------------------------------------------------------------
+
+X_SERVER_HELP = """\
+Ways forward, whichever you prefer:
+
+  * headless (no extra package, no X server, same engine, same report):
+        python3 migrate_tool.py --cli --old OLD.db --new NEW_v44.db
+    or let it ask you for the two files:
+        python3 migrate_tool.py --no-gui
+
+  * a real window on Android/Termux — install the X server, then point Tk at it:
+        pkg install python-tkinter x11-repo
+        pkg install termux-x11-nightly          # and install the Termux:X11 APK
+        termux-x11 :1 &                          # start the server, then:
+        DISPLAY=:1 python3 migrate_tool.py --gui
+"""
+
+
+def _is_termux() -> bool:
+    return "com.termux" in f"{sys.prefix}{sys.executable}" or bool(
+        os.environ.get("TERMUX_VERSION")
+    )
+
+
+def _shared_storage_paths(*paths) -> list:
+    """Paths on Android's shared storage — where SQLite cannot lock a database.
+
+    /storage/emulated/0 (and /sdcard) are a FUSE mount without POSIX locking and
+    without real permissions; a migration writing its output there dies with
+    'attempt to write a readonly database' or 'disk I/O error'. Warn up front
+    instead of letting sqlite fail halfway through a run.
+    """
+    if not _is_termux():
+        return []
+    return sorted({
+        str(p) for p in paths if p and any(
+            m in str(p).replace("\\", "/") for m in ("/storage/", "/sdcard/", "/mnt/media_rw/")
+        )
+    })
+
+
+_GUI_CHECK = None  # cached (ok, why_not) — probing opens a real window
+
+
+def _probe_gui():
+    """(True, "") when a Tk window can actually be opened, else (False, why)."""
+    try:
+        import tkinter as tk
+    except Exception as e:  # not built in / not installed (Termux: python-tkinter)
+        return False, f"tkinter is not installed ({e})"
+    if not sys.platform.startswith(("win", "darwin")):
+        # Cheap pre-check: no X/Wayland handle means there is nothing to draw on.
+        if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+            return False, "no display name and no $DISPLAY environment variable"
+    try:
+        root = tk.Tk()  # the only trustworthy test — $DISPLAY can be a dead handle
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+    try:
+        root.destroy()
+    except Exception:
+        pass
+    return True, ""
+
+
+def _gui_available():
+    global _GUI_CHECK
+    if _GUI_CHECK is None:
+        _GUI_CHECK = _probe_gui()
+    return _GUI_CHECK
+
+
+# ---------------------------------------------------------------------------
+# Headless file picker (for terminals — SSH, Termux, containers, CI)
+# ---------------------------------------------------------------------------
+
+def _ask(prompt: str) -> str:
+    try:
+        return input(prompt).strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return ""
+
+
+def _suggest_pair(files: list) -> tuple:
+    """Guess (old, new) from a list of files: the one with v4.4 markers is NEW."""
+    legacy, v44 = [], []
+    for p in files:
+        try:
+            info = inspect_database(p)
+        except Exception:
+            continue
+        if not info.get("is_ams"):
+            continue
+        (v44 if info.get("looks_v44") else legacy).append(p)
+    # a unique answer only — guessing between two same-role files is the user's job
+    return (legacy[0] if len(legacy) == 1 else None,
+            v44[0] if len(v44) == 1 else None)
+
+
+def _prompt_files(files: list) -> tuple:
+    """Ask for the two databases. Returns (old, new); (None, None) to cancel."""
+    print()
+    print("This migration needs two files:")
+    print("  OLD = the legacy database that holds your data")
+    print("  NEW = a fresh v4.4 AMS database that supplies the schema")
+    suggest_old, suggest_new = _suggest_pair(files) if files else (None, None)
+    if files:
+        print("\nDatabase files found in this folder and in drop/:")
+        for i, p in enumerate(files, 1):
+            try:
+                label = _describe(p)
+            except Exception:
+                label = p.name
+            print(f"  [{i}] {label}")
+            print(f"      {p}")
+
+    def one(kind: str, suggest) -> Path:
+        opts = ([f"1-{len(files)}"] if files else [])
+        if suggest is not None:
+            opts.append(f"s = {suggest.name}")
+        opts.append("a path")
+        while True:
+            raw = _ask(f"\n{kind} database  ({', '.join(opts)}; blank = cancel): ")
+            if not raw:
+                return None
+            if raw.lower() == "s" and suggest is not None:
+                return suggest
+            if raw.isdigit() and files and 1 <= int(raw) <= len(files):
+                return files[int(raw) - 1]
+            p = Path(raw.strip("'\"").expanduser())
+            if p.is_file():
+                return p.resolve()
+            print(f"  not a readable file: {raw}")
+
+    old = one("OLD", suggest_old)
+    if old is None:
+        return None, None
+    new = one("NEW", suggest_new)
+    if new is None:
+        return None, None
+    return old, new
+
+
+def _cli_hint(files: list, old=None, new=None) -> None:
+    """Print a copy-pasteable command line for exactly this pairing."""
+    here = Path(__file__).resolve()
+    if old and new:
+        print(f'\nSame thing again, without the questions:\n  python3 "{here}" --cli '
+              f'--old "{old}" --new "{new}"')
+    else:
+        so, sn = _suggest_pair(files) if files else (None, None)
+        a = f'"{so}"' if so else "OLD.db"
+        b = f'"{sn}"' if sn else "NEW_v44.db"
+        print(f'\nRun it explicitly:\n  python3 "{here}" --cli --old {a} --new {b}')
+
+
+# ---------------------------------------------------------------------------
 # GUI
 # ---------------------------------------------------------------------------
 
@@ -102,7 +272,13 @@ def build_gui() -> None:
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
 
-    root = tk.Tk()
+    try:
+        root = tk.Tk()
+    except tk.TclError as e:
+        # The display may have disappeared after the probe (X server closed,
+        # SSH session gone). Say so instead of handing the user a traceback.
+        print(f"Cannot open the GUI: {e}\n\n{X_SERVER_HELP}", file=sys.stderr)
+        raise SystemExit(2)
     root.title("AMS Database Migration Tool — old data -> new v4.4 schema")
     root.geometry("880x720")
     root.minsize(820, 640)
@@ -499,11 +675,26 @@ def build_gui() -> None:
 # ---------------------------------------------------------------------------
 
 def run_cli(args: argparse.Namespace) -> int:
-    old = Path(args.old)
-    new = Path(args.new)
+    old = Path(args.old).expanduser()
+    new = Path(args.new).expanduser()
     if not old.exists() or not new.exists():
-        print("One of the input files does not exist.", file=sys.stderr)
+        missing = [str(p) for p in (old, new) if not p.exists()]
+        print(f"One of the input files does not exist: {', '.join(missing)}", file=sys.stderr)
+        print("(Paths are relative to the current directory — "
+              f"you are in {Path.cwd()})", file=sys.stderr)
         return 2
+    out = Path(args.out).expanduser() if args.out else default_out_path(new, old)
+    on_sdcard = _shared_storage_paths(old, new, out)
+    if on_sdcard:
+        print("WARNING: these paths are on Android's shared storage, where SQLite\n"
+              "cannot lock or reliably write a database file:", file=sys.stderr)
+        for p in on_sdcard:
+            print(f"  {p}", file=sys.stderr)
+        print("Copy them into Termux's own home first and work there:\n"
+              f'  mkdir -p ~/migrate && cp {on_sdcard[0]!r} ~/migrate/\n'
+              "  (needs `termux-setup-storage` once, to grant /sdcard access)",
+              file=sys.stderr)
+        print(file=sys.stderr)
     info_old = inspect_database(old)
     info_new = inspect_database(new)
     print(f"OLD  : {old}  ({info_old['total_rows']} rows, {len(info_old['tables'])} tables, "
@@ -519,7 +710,7 @@ def run_cli(args: argparse.Namespace) -> int:
     try:
         report = run_migration(
             old, new,
-            out_path=Path(args.out) if args.out else None,
+            out_path=out,
             overwrite=not args.no_overwrite,
             progress=_prog,
             allow_v44_old=getattr(args, "allow_v44_old", False),
@@ -528,6 +719,16 @@ def run_cli(args: argparse.Namespace) -> int:
         )
     except MigrationError as e:
         print(f"ERROR: {e}", file=sys.stderr)
+        return 2
+    except sqlite3.Error as e:
+        # e.g. "attempt to write a readonly database" / "disk I/O error" from a
+        # FUSE-mounted shared-storage path, or a file that is not a database.
+        print(f"ERROR: sqlite refused the file(s): {e}", file=sys.stderr)
+        print(f"       (OLD={old}\n        NEW={new}\n        OUT={out})", file=sys.stderr)
+        if not on_sdcard:
+            print("       On Android/Termux, keep both the inputs and the output "
+                  "inside ~ (Termux's own storage) and copy the result out afterwards.",
+                  file=sys.stderr)
         return 2
     print()
     print(report["text"])
@@ -552,12 +753,22 @@ def main(argv=None) -> int:
     if argv and argv[0] == "--scan":
         return _cli_scan()
     ap = argparse.ArgumentParser(
-        description="AMS Database Migration Tool — GUI by default; pass --cli for headless."
+        description="AMS Database Migration Tool — the GUI when a display exists, "
+                    "headless otherwise (no third-party packages needed).",
+        epilog="No display? Nothing to fix and nothing to install: the headless "
+               "mode runs the identical engine. See --help or README.md.",
     )
-    ap.add_argument("--cli", action="store_true", help="headless mode")
+    ap.add_argument("--cli", action="store_true",
+                    help="headless mode; asks for the two files if not given")
+    ap.add_argument("--no-gui", action="store_true",
+                    help="never open a window (same as --cli)")
+    ap.add_argument("--gui", action="store_true",
+                    help="insist on the GUI and fail loudly if there is no display")
     ap.add_argument("--old", help="old/legacy database file (cli)")
     ap.add_argument("--new", help="new v4.4 template database file (cli)")
     ap.add_argument("--out", help="output migration file (cli)")
+    ap.add_argument("--scan", action="store_true",
+                    help="list the database files detected in this folder / drop/ and exit")
     ap.add_argument("--no-overwrite", action="store_true", help="refuse to overwrite output (cli)")
     ap.add_argument(
         "--allow-v44-old", action="store_true",
@@ -575,22 +786,63 @@ def main(argv=None) -> int:
     )
     args = ap.parse_args(argv)
 
-    if args.cli or not _tk_available():
-        if not args.old or not args.new:
-            ap.error("--cli requires --old and --new")
-        return run_cli(args)
+    if args.scan:
+        return _cli_scan()
+
+    if args.gui and (args.cli or args.no_gui):
+        ap.error("--gui cannot be combined with --cli/--no-gui")
+
+    headless = args.cli or args.no_gui
+    if not headless:
+        ok, why = _gui_available()
+        if not ok:
+            if args.gui:
+                print(f"ERROR: no display available, so --gui cannot run.\n"
+                      f"  reason: {why}\n\n{X_SERVER_HELP}", file=sys.stderr)
+                return 2
+            # The import succeeding is not enough (Termux/Android, SSH, containers,
+            # CI): fall back to the same engine headless instead of crashing.
+            print(f"No GUI here ({why}) — running headless instead.\n")
+            headless = True
+
+    if headless:
+        return _run_headless(args)
 
     build_gui()
     return 0
 
 
-def _tk_available() -> bool:
-    try:
-        import tkinter  # noqa: F401
-        return True
-    except Exception:
-        return False
+def _run_headless(args: argparse.Namespace) -> int:
+    """Headless entry: use the given files, or ask for them on a terminal."""
+    if args.old and args.new:
+        return run_cli(args)
+
+    files = _scan_databases()
+    if not sys.stdin.isatty():
+        sys.stdout.flush()   # keep the notice ahead of the explanation on a pipe
+        print("Need two database files (OLD + NEW) but stdin is not a terminal, "
+              "so nothing can be asked.", file=sys.stderr)
+        if files:
+            print("Detected in this folder / drop/:", file=sys.stderr)
+            for p in files:
+                print(f"  {p}", file=sys.stderr)
+        _cli_hint(files)
+        return 2
+
+    old, new = _prompt_files(files)
+    if old is None or new is None:
+        print("Cancelled — no files chosen, nothing was created.")
+        return 2
+    args.old, args.new = str(old), str(new)
+    _cli_hint(files, old, new)
+    print()
+    return run_cli(args)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:  # Ctrl-C during a prompt or a run
+        print("\nInterrupted.", file=sys.stderr)
+        sys.exit(130)
+
